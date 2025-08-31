@@ -1,0 +1,363 @@
+# 開発者継続要因分析設定ファイル
+
+# 基本設定
+analysis:
+  name: "gerrit_developer_retention_analysis"
+  version: "1.0.0"
+  description: "Gerrit開発者の継続要因を包括的に分析"
+
+# データ設定
+data:
+  input_dir: "data/processed/unified"
+  required_files:
+    - "all_developers.json"
+    - "all_reviews.json"
+    - "all_features.json"
+
+  # 分析期間
+  analysis_period:
+    start_date: "2022-01-01"
+    end_date: "2023-12-31"
+
+  # データ品質設定
+  quality_checks:
+    min_developers: 50
+    min_reviews_per_developer: 1
+    max_missing_data_ratio: 0.3
+
+# 継続定義設定
+retention:
+  # 継続判定の閾値（日数）
+  threshold_days: 90
+
+  # 最低活動量の閾値
+  min_activity_threshold: 5
+
+  # 継続段階の定義
+  stages:
+    onboarding:
+      duration_days: 30
+      description: "初期学習期間"
+      key_activities: ["初回コミット", "初回レビュー"]
+
+    engagement:
+      duration_days: 90
+      description: "関係構築期間"
+      key_activities: ["定期的な活動", "協力関係形成"]
+
+    commitment:
+      duration_days: 365
+      description: "継続貢献期間"
+      key_activities: ["専門性発揮", "リーダーシップ"]
+
+    mastery:
+      duration_days: 999999 # 無制限
+      description: "熟練者期間"
+      key_activities: ["メンタリング", "コミュニティ貢献"]
+
+# 特徴量設定
+features:
+  # 活動量特徴
+  activity:
+    - "changes_authored"
+    - "changes_reviewed"
+    - "total_insertions"
+    - "total_deletions"
+    - "projects_count"
+    - "review_to_author_ratio"
+    - "code_change_intensity"
+
+  # 時間的特徴
+  temporal:
+    - "days_since_first_seen"
+    - "activity_frequency"
+    - "activity_consistency"
+    - "seasonal_patterns"
+    - "weekly_patterns"
+
+  # 協力特徴
+  collaboration:
+    - "collaboration_diversity"
+    - "review_network_centrality"
+    - "mentoring_activity"
+    - "cross_team_collaboration"
+    - "community_integration"
+
+  # 品質特徴
+  quality:
+    - "avg_review_quality"
+    - "code_review_thoroughness"
+    - "review_response_speed"
+    - "review_acceptance_rate"
+    - "positive_feedback_ratio"
+
+  # ストレス・満足度特徴
+  wellbeing:
+    - "workload_variability"
+    - "stress_indicators"
+    - "satisfaction_level"
+    - "work_life_balance"
+    - "burnout_risk"
+
+  # 学習・成長特徴
+  growth:
+    - "skill_diversity"
+    - "learning_trajectory"
+    - "expertise_recognition"
+    - "career_progression"
+    - "knowledge_sharing"
+
+  # Gerrit特有特徴
+  gerrit_specific:
+    - "review_score_average"
+    - "change_complexity_preference"
+    - "review_thoroughness"
+    - "response_time_consistency"
+    - "gerrit_tool_usage"
+
+# 機械学習設定
+ml:
+  # モデル設定
+  models:
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+      min_samples_split: 5
+      random_state: 42
+
+    gradient_boosting:
+      n_estimators: 100
+      learning_rate: 0.1
+      max_depth: 6
+      random_state: 42
+
+    logistic_regression:
+      max_iter: 1000
+      random_state: 42
+      solver: "liblinear"
+
+  # 交差検証設定
+  cross_validation:
+    cv_folds: 5
+    scoring: "accuracy"
+
+  # 特徴選択設定
+  feature_selection:
+    method: "recursive_feature_elimination"
+    n_features: 20
+
+  # データ分割設定
+  train_test_split:
+    test_size: 0.2
+    random_state: 42
+    stratify: true
+
+# 分析設定
+analysis_methods:
+  # 重要度分析
+  importance_analysis:
+    methods:
+      - "random_forest_importance"
+      - "permutation_importance"
+      - "shap_values"
+      - "correlation_analysis"
+
+  # 統計的検定
+  statistical_tests:
+    significance_level: 0.05
+    methods:
+      - "t_test"
+      - "chi_square"
+      - "mann_whitney_u"
+
+  # クラスタリング
+  clustering:
+    method: "kmeans"
+    n_clusters_range: [3, 8]
+    evaluation_metric: "silhouette_score"
+
+  # 時系列分析
+  temporal_analysis:
+    seasonality_detection: true
+    trend_analysis: true
+    change_point_detection: true
+
+# アーキタイプ分析設定
+archetypes:
+  # アーキタイプ名
+  names:
+    - "新人探索者"
+    - "安定貢献者"
+    - "技術リーダー"
+    - "コミュニティビルダー"
+    - "専門家"
+
+  # 特徴付け方法
+  characterization:
+    method: "cluster_analysis"
+    feature_importance_threshold: 0.1
+
+  # 命名ルール
+  naming_rules:
+    activity_level: ["低活動", "中活動", "高活動"]
+    collaboration_style: ["個人志向", "チーム志向", "コミュニティ志向"]
+    expertise_level: ["初心者", "中級者", "上級者", "エキスパート"]
+
+# 介入分析設定
+intervention:
+  # リスク評価
+  risk_assessment:
+    high_risk_threshold: 0.3
+    medium_risk_threshold: 0.6
+
+  # 介入タイミング
+  timing:
+    early_intervention_days: 30
+    critical_intervention_days: 60
+
+  # 介入戦略
+  strategies:
+    mentoring:
+      target_archetypes: ["新人探索者"]
+      expected_impact: 0.2
+
+    workload_management:
+      target_archetypes: ["安定貢献者", "技術リーダー"]
+      expected_impact: 0.15
+
+    community_building:
+      target_archetypes: ["コミュニティビルダー"]
+      expected_impact: 0.25
+
+    skill_development:
+      target_archetypes: ["専門家"]
+      expected_impact: 0.1
+
+# 出力設定
+output:
+  # 基本出力ディレクトリ
+  base_dir: "outputs/retention_analysis"
+
+  # サブディレクトリ
+  subdirs:
+    reports: "reports"
+    visualizations: "visualizations"
+    models: "models"
+    data: "processed_data"
+
+  # ファイル形式
+  formats:
+    reports: ["markdown", "html", "pdf"]
+    data: ["json", "csv", "pickle"]
+    visualizations: ["png", "svg", "html"]
+
+  # 可視化設定
+  visualization:
+    style: "seaborn-v0_8"
+    palette: "husl"
+    figure_size: [12, 8]
+    dpi: 300
+
+    # チャート種類
+    charts:
+      - "feature_importance_ranking"
+      - "archetype_comparison"
+      - "retention_journey_map"
+      - "correlation_heatmap"
+      - "temporal_patterns"
+      - "intervention_matrix"
+      - "roi_predictions"
+
+# レポート設定
+reporting:
+  # レポート種類
+  types:
+    - "executive_summary"
+    - "technical_details"
+    - "actionable_insights"
+    - "archetype_profiles"
+
+  # 言語設定
+  language: "ja"
+
+  # テンプレート設定
+  templates:
+    executive_summary: "templates/executive_summary.md"
+    technical_details: "templates/technical_details.md"
+
+  # 自動生成設定
+  auto_generation:
+    enabled: true
+    schedule: "weekly"
+    recipients: ["team@example.com"]
+
+# 実験追跡設定
+experiment_tracking:
+  enabled: true
+  backend: "mlflow"
+  experiment_name: "gerrit_retention_analysis"
+
+  # 追跡対象
+  track:
+    - "model_performance"
+    - "feature_importance"
+    - "hyperparameters"
+    - "artifacts"
+
+# パフォーマンス設定
+performance:
+  # 並列処理
+  parallel_processing:
+    enabled: true
+    n_jobs: -1
+
+  # メモリ管理
+  memory:
+    chunk_size: 10000
+    low_memory_mode: false
+
+  # キャッシュ設定
+  caching:
+    enabled: true
+    cache_dir: ".cache/retention_analysis"
+    ttl: 86400 # 24時間
+
+# ログ設定
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/retention_analysis.log"
+
+  # ログローテーション
+  rotation:
+    max_bytes: 10485760 # 10MB
+    backup_count: 5
+
+# 検証設定
+validation:
+  # データ検証
+  data_validation:
+    enabled: true
+    checks:
+      - "missing_values"
+      - "data_types"
+      - "value_ranges"
+      - "duplicates"
+
+  # モデル検証
+  model_validation:
+    enabled: true
+    metrics:
+      - "accuracy"
+      - "precision"
+      - "recall"
+      - "f1_score"
+      - "auc_roc"
+
+  # 結果検証
+  result_validation:
+    enabled: true
+    sanity_checks:
+      - "feature_importance_sum"
+      - "prediction_ranges"
+      - "archetype_consistency"
