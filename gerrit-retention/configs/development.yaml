@@ -1,0 +1,60 @@
+# 開発環境設定ファイル
+
+# 基本設定を継承
+defaults:
+  - gerrit_config
+
+# 開発環境固有の設定
+gerrit:
+  url: "https://gerrit-dev.example.com"
+  projects:
+    - "test-project"
+  data_extraction:
+    batch_size: 100 # 開発環境では小さなバッチサイズ
+    rate_limit_delay: 0.5
+
+# ログ設定（開発環境）
+logging:
+  level: "DEBUG"
+  format: "text"
+  file: "logs/development.log"
+
+# 機械学習設定（開発環境）
+ml:
+  device: "cpu" # 開発環境ではCPUを使用
+
+# 定着予測設定（開発環境）
+retention_prediction:
+  model_params:
+    n_estimators: 10 # 高速化のため小さな値
+    max_depth: 5
+
+# 強化学習環境設定（開発環境）
+rl_environment:
+  max_episode_length: 20 # 短いエピソード
+
+# PPOエージェント設定（開発環境）
+ppo_agent:
+  batch_size: 16 # 小さなバッチサイズ
+  n_epochs: 3
+
+# 可視化設定（開発環境）
+visualization:
+  output_dir: "outputs/dev_visualizations"
+  figure_dpi: 150 # 低解像度で高速化
+
+# キャッシュ設定（開発環境）
+cache:
+  enabled: true
+  ttl: 300 # 短いTTL
+
+# 実験追跡設定（開発環境）
+experiment_tracking:
+  enabled: true
+  experiment_name: "gerrit-retention-dev"
+
+# デバッグ設定
+debug:
+  enabled: true
+  save_intermediate_results: true
+  verbose_logging: true

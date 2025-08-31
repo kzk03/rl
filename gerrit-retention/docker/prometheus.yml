@@ -1,0 +1,76 @@
+# Prometheus設定ファイル - Gerrit開発者定着予測システム
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'gerrit-retention-monitor'
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus自体の監視
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # メインアプリケーションの監視
+  - job_name: 'gerrit-retention-app'
+    static_configs:
+      - targets: ['gerrit-retention-app:8081']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # ワーカーの監視
+  - job_name: 'gerrit-retention-worker'
+    static_configs:
+      - targets: ['gerrit-retention-worker:8081']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Redis監視
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    metrics_path: '/metrics'
+
+  # PostgreSQL監視
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  # Nginx監視
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx:80']
+    metrics_path: '/nginx_status'
+
+  # Node Exporter（システムメトリクス）
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # cAdvisor（コンテナメトリクス）
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    metrics_path: '/metrics'
+
+  # MLflow監視
+  - job_name: 'mlflow'
+    static_configs:
+      - targets: ['mlflow:5000']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+
+# アラートルール
+rule_files:
+  - "/etc/prometheus/rules/*.yml"

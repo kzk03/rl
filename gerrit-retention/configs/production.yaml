@@ -1,0 +1,92 @@
+# 本番環境設定ファイル
+
+# 基本設定を継承
+defaults:
+  - gerrit_config
+
+# 本番環境固有の設定
+gerrit:
+  url: "${GERRIT_URL}" # 環境変数から取得
+  auth:
+    username: "${GERRIT_USERNAME}"
+    password: "${GERRIT_PASSWORD}"
+  projects: "${GERRIT_PROJECTS}" # 環境変数から取得（カンマ区切り）
+  data_extraction:
+    batch_size: 2000 # 本番環境では大きなバッチサイズ
+    rate_limit_delay: 2.0 # 本番環境では慎重にレート制限
+    max_retries: 5
+    timeout: 60
+
+# ログ設定（本番環境）
+logging:
+  level: "INFO"
+  format: "json" # 本番環境では構造化ログ
+  file: "logs/production.log"
+
+# 機械学習設定（本番環境）
+ml:
+  device: "auto" # GPU利用可能なら使用
+  random_seed: 42
+
+# 定着予測設定（本番環境）
+retention_prediction:
+  model_params:
+    n_estimators: 200 # 本番環境では高精度
+    max_depth: 15
+
+# ストレス分析設定（本番環境）
+stress_analysis:
+  # 本番環境では厳格な閾値
+  gerrit_stress_factors:
+    high_complexity_threshold: 0.7
+    review_queue_size_threshold: 8
+    response_time_pressure_threshold: 12 # hours
+
+# 強化学習環境設定（本番環境）
+rl_environment:
+  max_episode_length: 200 # 長いエピソード
+
+# PPOエージェント設定（本番環境）
+ppo_agent:
+  batch_size: 128 # 大きなバッチサイズ
+  n_epochs: 20
+
+# 可視化設定（本番環境）
+visualization:
+  output_dir: "outputs/production_visualizations"
+  figure_dpi: 300
+
+# キャッシュ設定（本番環境）
+cache:
+  enabled: true
+  ttl: 7200 # 長いTTL
+  backend: "redis" # 本番環境ではRedis使用
+
+# 実験追跡設定（本番環境）
+experiment_tracking:
+  enabled: true
+  backend: "mlflow"
+  experiment_name: "gerrit-retention-production"
+
+# セキュリティ設定
+security:
+  enable_ssl_verification: true
+  api_key_rotation_days: 30
+  max_concurrent_connections: 10
+
+# パフォーマンス設定
+performance:
+  enable_parallel_processing: true
+  max_workers: 8
+  memory_limit_gb: 16
+  enable_gpu_acceleration: true
+
+# 監視設定
+monitoring:
+  enable_metrics: true
+  metrics_port: 8080
+  health_check_interval: 60 # seconds
+  alert_thresholds:
+    error_rate: 0.05
+    response_time_p95: 5000 # ms
+    memory_usage: 0.8

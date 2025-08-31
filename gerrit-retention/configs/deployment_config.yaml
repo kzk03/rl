@@ -1,0 +1,350 @@
+# デプロイメント設定ファイル
+
+# デプロイメント全般設定
+deployment:
+  # 環境設定
+  environments:
+    development:
+      enabled: true
+      auto_deploy: true
+      health_check_timeout: 30
+      rollback_on_failure: true
+
+    testing:
+      enabled: true
+      auto_deploy: false
+      health_check_timeout: 60
+      rollback_on_failure: true
+      require_approval: true
+
+    production:
+      enabled: true
+      auto_deploy: false
+      health_check_timeout: 120
+      rollback_on_failure: true
+      require_approval: true
+      require_backup: true
+
+  # デプロイ戦略
+  strategy:
+    type: "rolling_update" # rolling_update, blue_green, canary
+    max_unavailable: 1
+    max_surge: 1
+
+    # ローリングアップデート設定
+    rolling_update:
+      batch_size: 1
+      wait_between_batches: 30 # seconds
+      health_check_interval: 10 # seconds
+
+    # ブルーグリーンデプロイ設定
+    blue_green:
+      switch_traffic_percentage: 100
+      keep_old_version_minutes: 60
+
+    # カナリアデプロイ設定
+    canary:
+      initial_traffic_percentage: 10
+      increment_percentage: 20
+      increment_interval_minutes: 15
+      success_threshold: 0.99
+
+  # ヘルスチェック設定
+  health_checks:
+    startup_probe:
+      path: "/health/startup"
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      failure_threshold: 30
+
+    liveness_probe:
+      path: "/health/live"
+      initial_delay_seconds: 60
+      period_seconds: 30
+      timeout_seconds: 10
+      failure_threshold: 3
+
+    readiness_probe:
+      path: "/health/ready"
+      initial_delay_seconds: 10
+      period_seconds: 5
+      timeout_seconds: 3
+      failure_threshold: 3
+
+# Docker設定
+docker:
+  # イメージ設定
+  image:
+    registry: "your-registry.com"
+    repository: "gerrit-retention"
+    tag_strategy: "semantic_version" # semantic_version, timestamp, git_hash
+
+  # ビルド設定
+  build:
+    context: "."
+    dockerfile: "docker/Dockerfile"
+    target: "production"
+    build_args:
+      ENVIRONMENT: "${ENVIRONMENT}"
+      BUILD_VERSION: "${BUILD_VERSION}"
+
+    # マルチアーキテクチャビルド
+    platforms:
+      - "linux/amd64"
+      - "linux/arm64"
+
+  # セキュリティ設定
+  security:
+    scan_vulnerabilities: true
+    fail_on_critical: true
+    fail_on_high: false
+
+    # 許可されたベースイメージ
+    allowed_base_images:
+      - "python:3.11-slim"
+      - "python:3.11-alpine"
+
+# Kubernetes設定
+kubernetes:
+  # 名前空間設定
+  namespaces:
+    development: "gerrit-retention-dev"
+    testing: "gerrit-retention-test"
+    production: "gerrit-retention-prod"
+
+  # リソース設定
+  resources:
+    app:
+      requests:
+        memory: "2Gi"
+        cpu: "1000m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
+
+    worker:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+
+  # オートスケーリング設定
+  autoscaling:
+    enabled: true
+    min_replicas: 2
+    max_replicas: 10
+    target_cpu_utilization: 70
+    target_memory_utilization: 80
+
+    # カスタムメトリクス
+    custom_metrics:
+      - name: "queue_length"
+        target_value: 100
+      - name: "response_time_p95"
+        target_value: 5000 # ms
+
+  # ネットワーク設定
+  networking:
+    service_type: "ClusterIP"
+    ingress:
+      enabled: true
+      class: "nginx"
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: "/"
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+      tls:
+        enabled: true
+        secret_name: "gerrit-retention-tls"
+
+  # ストレージ設定
+  storage:
+    data_volume:
+      size: "100Gi"
+      storage_class: "fast-ssd"
+      access_mode: "ReadWriteOnce"
+
+    models_volume:
+      size: "50Gi"
+      storage_class: "standard"
+      access_mode: "ReadWriteMany"
+
+# CI/CD設定
+cicd:
+  # パイプライン設定
+  pipeline:
+    triggers:
+      - "push_to_main"
+      - "pull_request"
+      - "scheduled_daily"
+
+    stages:
+      - name: "test"
+        commands:
+          - "pytest tests/"
+          - "ruff check ."
+
+      - name: "build"
+        commands:
+          - "docker build -t ${IMAGE_TAG} ."
+          - "docker push ${IMAGE_TAG}"
+
+      - name: "deploy_dev"
+        environment: "development"
+        auto_deploy: true
+        commands:
+          - "kubectl apply -f k8s/development/"
+
+      - name: "deploy_test"
+        environment: "testing"
+        auto_deploy: false
+        requires_approval: true
+        commands:
+          - "kubectl apply -f k8s/testing/"
+
+      - name: "deploy_prod"
+        environment: "production"
+        auto_deploy: false
+        requires_approval: true
+        commands:
+          - "kubectl apply -f k8s/production/"
+
+  # 品質ゲート
+  quality_gates:
+    test_coverage_threshold: 80
+    security_scan_pass: true
+    performance_regression_threshold: 10 # percent
+
+  # 通知設定
+  notifications:
+    slack:
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channels:
+        success: "#deployments"
+        failure: "#alerts"
+
+    email:
+      recipients:
+        - "devops@example.com"
+        - "team-lead@example.com"
+
+# 監視・ログ設定
+monitoring:
+  # メトリクス収集
+  metrics:
+    prometheus:
+      enabled: true
+      scrape_interval: "30s"
+      retention: "30d"
+
+    custom_metrics:
+      - name: "deployment_success_rate"
+        query: "rate(deployment_success_total[5m])"
+      - name: "rollback_rate"
+        query: "rate(deployment_rollback_total[5m])"
+
+  # ログ集約
+  logging:
+    elasticsearch:
+      enabled: true
+      index_pattern: "gerrit-retention-*"
+      retention_days: 30
+
+    log_levels:
+      development: "DEBUG"
+      testing: "INFO"
+      production: "INFO"
+
+  # アラート設定
+  alerts:
+    deployment_failure:
+      condition: "deployment_success_rate < 0.9"
+      severity: "critical"
+      notification_channels: ["slack", "email"]
+
+    high_rollback_rate:
+      condition: "rollback_rate > 0.1"
+      severity: "warning"
+      notification_channels: ["slack"]
+
+# セキュリティ設定
+security:
+  # イメージスキャン
+  image_scanning:
+    enabled: true
+    fail_on_critical: true
+    fail_on_high: false
+
+  # シークレット管理
+  secrets:
+    provider: "kubernetes" # kubernetes, vault, aws_secrets_manager
+    rotation_days: 90
+
+    # 必要なシークレット
+    required_secrets:
+      - "gerrit-credentials"
+      - "database-password"
+      - "redis-password"
+      - "tls-certificates"
+
+  # ネットワークポリシー
+  network_policies:
+    enabled: true
+    default_deny: true
+
+    allowed_ingress:
+      - from: "ingress-controller"
+        ports: [80, 443]
+      - from: "monitoring"
+        ports: [8081]
+
+    allowed_egress:
+      - to: "database"
+        ports: [5432]
+      - to: "redis"
+        ports: [6379]
+      - to: "external-apis"
+        ports: [80, 443]
+
+# バックアップ・災害復旧設定
+backup:
+  # データベースバックアップ
+  database:
+    enabled: true
+    schedule: "0 2 * * *" # 毎日2時
+    retention_days: 30
+    encryption: true
+
+  # モデルバックアップ
+  models:
+    enabled: true
+    schedule: "0 3 * * 0" # 毎週日曜3時
+    retention_weeks: 12
+
+  # 設定バックアップ
+  configuration:
+    enabled: true
+    schedule: "0 1 * * *" # 毎日1時
+    retention_days: 90
+
+# 災害復旧設定
+disaster_recovery:
+  # RTO/RPO設定
+  rto_minutes: 60 # Recovery Time Objective
+  rpo_minutes: 15 # Recovery Point Objective
+
+  # 復旧手順
+  recovery_procedures:
+    - "Restore database from latest backup"
+    - "Deploy application from last known good image"
+    - "Verify health checks"
+    - "Switch traffic to recovered instance"
+
+  # 定期的な災害復旧テスト
+  dr_testing:
+    enabled: true
+    schedule: "quarterly"
+    automated: false

@@ -1,0 +1,379 @@
+# ログ・監視システム設定ファイル
+
+# ログ設定
+logging:
+  # 基本設定
+  level: "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "text" # text, json
+
+  # ファイル出力設定
+  file_logging:
+    enabled: true
+    base_dir: "logs"
+
+    # ログファイル設定
+    files:
+      main:
+        filename: "gerrit_retention.log"
+        level: "INFO"
+        rotation: "10 MB"
+        retention: "7 days"
+        compression: "gz"
+
+      error:
+        filename: "error.log"
+        level: "ERROR"
+        rotation: "5 MB"
+        retention: "14 days"
+        compression: "gz"
+
+      debug:
+        filename: "debug.log"
+        level: "DEBUG"
+        rotation: "20 MB"
+        retention: "3 days"
+        compression: "gz"
+
+      performance:
+        filename: "performance.log"
+        level: "INFO"
+        rotation: "10 MB"
+        retention: "7 days"
+        compression: "gz"
+
+      alerts:
+        filename: "alerts.log"
+        level: "WARNING"
+        rotation: "5 MB"
+        retention: "30 days"
+        compression: "gz"
+
+  # コンソール出力設定
+  console_logging:
+    enabled: true
+    level: "INFO"
+    colorize: true
+
+  # 構造化ログ設定
+  structured_logging:
+    enabled: true
+    include_fields:
+      - "timestamp"
+      - "level"
+      - "logger_name"
+      - "function_name"
+      - "line_number"
+      - "message"
+      - "module"
+      - "thread_id"
+      - "process_id"
+
+    # 追加コンテキスト
+    context_fields:
+      - "user_id"
+      - "session_id"
+      - "request_id"
+      - "correlation_id"
+
+# パフォーマンス監視設定
+performance_monitoring:
+  # 基本設定
+  enabled: true
+  metrics_retention_hours: 168 # 7日間
+
+  # メトリクス収集設定
+  metrics_collection:
+    # システムメトリクス
+    system_metrics:
+      enabled: true
+      interval_seconds: 60
+      metrics:
+        - "cpu_usage"
+        - "memory_usage"
+        - "disk_usage"
+        - "network_io"
+        - "disk_io"
+
+    # アプリケーションメトリクス
+    application_metrics:
+      enabled: true
+      metrics:
+        - "execution_time"
+        - "error_rate"
+        - "throughput"
+        - "response_time"
+        - "queue_size"
+        - "active_connections"
+
+    # 機械学習メトリクス
+    ml_metrics:
+      enabled: true
+      metrics:
+        - "model_accuracy"
+        - "prediction_latency"
+        - "training_time"
+        - "inference_time"
+        - "model_size"
+        - "feature_importance"
+
+  # メトリクス出力設定
+  metrics_output:
+    # ファイル出力
+    file_output:
+      enabled: true
+      filename: "metrics.jsonl"
+      rotation: "daily"
+      retention: "30 days"
+
+    # コンソール出力
+    console_output:
+      enabled: false
+      interval_seconds: 300 # 5分間隔
+
+    # 外部システム連携
+    external_systems:
+      prometheus:
+        enabled: false
+        endpoint: "http://localhost:9090"
+        push_interval_seconds: 30
+
+      grafana:
+        enabled: false
+        dashboard_url: "http://localhost:3000"
+
+      elasticsearch:
+        enabled: false
+        host: "localhost"
+        port: 9200
+        index: "gerrit-retention-metrics"
+
+# アラート・通知設定
+alerting:
+  # 基本設定
+  enabled: true
+
+  # アラートルール
+  rules:
+    # パフォーマンスアラート
+    performance_alerts:
+      slow_execution:
+        condition: "execution_time > 30"
+        severity: "warning"
+        message: "実行時間が30秒を超えました: {function_name}"
+        cooldown_minutes: 5
+
+      very_slow_execution:
+        condition: "execution_time > 120"
+        severity: "error"
+        message: "実行時間が2分を超えました: {function_name}"
+        cooldown_minutes: 10
+
+      high_error_rate:
+        condition: "error_rate > 0.1"
+        severity: "error"
+        message: "エラー率が10%を超えました"
+        cooldown_minutes: 15
+
+      critical_error_rate:
+        condition: "error_rate > 0.25"
+        severity: "critical"
+        message: "エラー率が25%を超えました - 緊急対応が必要"
+        cooldown_minutes: 5
+
+    # システムリソースアラート
+    system_alerts:
+      high_cpu_usage:
+        condition: "cpu_usage > 0.8"
+        severity: "warning"
+        message: "CPU使用率が80%を超えました"
+        cooldown_minutes: 5
+
+      critical_cpu_usage:
+        condition: "cpu_usage > 0.95"
+        severity: "critical"
+        message: "CPU使用率が95%を超えました"
+        cooldown_minutes: 2
+
+      high_memory_usage:
+        condition: "memory_usage > 0.8"
+        severity: "warning"
+        message: "メモリ使用率が80%を超えました"
+        cooldown_minutes: 5
+
+      critical_memory_usage:
+        condition: "memory_usage > 0.95"
+        severity: "critical"
+        message: "メモリ使用率が95%を超えました"
+        cooldown_minutes: 2
+
+      high_disk_usage:
+        condition: "disk_usage > 0.9"
+        severity: "warning"
+        message: "ディスク使用率が90%を超えました"
+        cooldown_minutes: 30
+
+    # 機械学習アラート
+    ml_alerts:
+      model_accuracy_drop:
+        condition: "model_accuracy < 0.7"
+        severity: "warning"
+        message: "モデル精度が70%を下回りました"
+        cooldown_minutes: 60
+
+      prediction_latency_high:
+        condition: "prediction_latency > 5"
+        severity: "warning"
+        message: "予測レイテンシが5秒を超えました"
+        cooldown_minutes: 10
+
+      training_failure:
+        condition: "training_status == 'failed'"
+        severity: "error"
+        message: "モデル訓練が失敗しました"
+        cooldown_minutes: 30
+
+  # 通知チャネル
+  notification_channels:
+    # ファイル通知
+    file:
+      enabled: true
+      filename: "alerts.log"
+      format: "json"
+
+    # コンソール通知
+    console:
+      enabled: true
+      color_coding: true
+      severity_icons:
+        info: "ℹ️"
+        warning: "⚠️"
+        error: "❌"
+        critical: "🚨"
+
+    # メール通知
+    email:
+      enabled: false
+      smtp_server: "smtp.example.com"
+      smtp_port: 587
+      username: "${EMAIL_USERNAME}"
+      password: "${EMAIL_PASSWORD}"
+      from_address: "alerts@example.com"
+      to_addresses:
+        - "admin@example.com"
+        - "devops@example.com"
+
+      # 重要度別設定
+      severity_settings:
+        critical:
+          enabled: true
+          subject_prefix: "[CRITICAL]"
+        error:
+          enabled: true
+          subject_prefix: "[ERROR]"
+        warning:
+          enabled: false
+        info:
+          enabled: false
+
+    # Slack通知
+    slack:
+      enabled: false
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#alerts"
+      username: "GerritRetentionBot"
+
+      # 重要度別設定
+      severity_settings:
+        critical:
+          enabled: true
+          color: "danger"
+        error:
+          enabled: true
+          color: "warning"
+        warning:
+          enabled: true
+          color: "warning"
+        info:
+          enabled: false
+
+    # Discord通知
+    discord:
+      enabled: false
+      webhook_url: "${DISCORD_WEBHOOK_URL}"
+
+    # PagerDuty通知
+    pagerduty:
+      enabled: false
+      integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+      severity_mapping:
+        critical: "critical"
+        error: "error"
+        warning: "warning"
+        info: "info"
+
+# ログ分析設定
+log_analysis:
+  # 自動分析
+  automated_analysis:
+    enabled: true
+    analysis_interval_hours: 24
+
+    # 分析項目
+    analysis_items:
+      - "error_patterns"
+      - "performance_trends"
+      - "usage_statistics"
+      - "anomaly_detection"
+
+  # レポート生成
+  report_generation:
+    enabled: true
+    output_dir: "outputs/log_reports"
+    formats: ["html", "pdf", "json"]
+
+    # レポート種類
+    reports:
+      daily_summary:
+        enabled: true
+        schedule: "daily"
+        include_sections:
+          - "error_summary"
+          - "performance_summary"
+          - "alert_summary"
+
+      weekly_analysis:
+        enabled: true
+        schedule: "weekly"
+        include_sections:
+          - "trend_analysis"
+          - "performance_analysis"
+          - "error_analysis"
+          - "recommendations"
+
+      monthly_report:
+        enabled: true
+        schedule: "monthly"
+        include_sections:
+          - "comprehensive_analysis"
+          - "capacity_planning"
+          - "optimization_recommendations"
+
+# デバッグ・トラブルシューティング設定
+debugging:
+  # デバッグモード
+  debug_mode:
+    enabled: false # 本番環境では無効
+    verbose_logging: true
+    stack_trace_logging: true
+
+  # トレーシング
+  tracing:
+    enabled: false
+    trace_sampling_rate: 0.1
+    trace_export_format: "jaeger"
+
+  # プロファイリング
+  profiling:
+    enabled: false
+    profiler_type: "cProfile"
+    output_dir: "outputs/profiling"

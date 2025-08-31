@@ -1,0 +1,217 @@
+# ストレス分析専用設定ファイル
+
+# ストレス分析設定
+stress_analysis:
+  # ストレス指標の重み
+  stress_weights:
+    task_compatibility_stress: 0.3
+    workload_stress: 0.4
+    social_stress: 0.2
+    temporal_stress: 0.1
+
+  # タスク適合度ストレス
+  task_compatibility:
+    # 専門性マッチング
+    expertise_mismatch_penalty: 2.0
+    learning_curve_factor: 1.5
+
+    # 技術領域適合度
+    domain_mismatch_weights:
+      programming_language: 0.4
+      framework_technology: 0.3
+      business_domain: 0.2
+      architectural_pattern: 0.1
+
+    # 複雑度適合度
+    complexity_thresholds:
+      beginner: 0.3
+      intermediate: 0.6
+      advanced: 0.8
+      expert: 1.0
+
+  # ワークロードストレス
+  workload_stress:
+    # 同時進行タスク数の閾値
+    concurrent_tasks_thresholds:
+      low: 2
+      medium: 4
+      high: 6
+      critical: 8
+
+    # 締切プレッシャー
+    deadline_pressure:
+      urgent_threshold_hours: 24
+      normal_threshold_hours: 168 # 1週間
+      relaxed_threshold_hours: 336 # 2週間
+
+    # レビュー負荷
+    review_load:
+      max_reviews_per_day: 5
+      max_review_complexity_sum: 10.0
+      review_time_budget_hours: 4
+
+  # 社会的ストレス
+  social_stress:
+    # 協力関係の質
+    collaboration_quality:
+      min_interaction_threshold: 3
+      trust_score_weight: 0.5
+      communication_efficiency_weight: 0.3
+      conflict_resolution_weight: 0.2
+
+    # コミュニケーション負荷
+    communication_load:
+      max_meetings_per_day: 4
+      max_interruptions_per_hour: 3
+      preferred_communication_channels:
+        - "async_review_comments"
+        - "structured_meetings"
+        - "documentation"
+
+    # チーム動学
+    team_dynamics:
+      team_size_optimal: 5
+      hierarchy_levels_max: 3
+      decision_making_speed_weight: 0.4
+
+  # 時間的ストレス
+  temporal_stress:
+    # 作業時間パターン
+    work_patterns:
+      preferred_hours:
+        start: 9
+        end: 17
+      timezone_mismatch_penalty: 1.5
+      weekend_work_penalty: 2.0
+
+    # 中断・復帰コスト
+    context_switching:
+      task_switch_penalty: 0.5
+      deep_work_session_min_hours: 2
+      interruption_recovery_time_minutes: 23
+
+# 沸点予測設定
+boiling_point_prediction:
+  # 予測モデル設定
+  model:
+    type: "support_vector_regression"
+    params:
+      kernel: "rbf"
+      C: 1.0
+      gamma: "scale"
+      epsilon: 0.1
+
+  # 沸点閾値設定
+  thresholds:
+    # ストレスレベル別閾値
+    stress_level_thresholds:
+      low: 0.3
+      medium: 0.6
+      high: 0.8
+      critical: 0.95
+
+    # 個人差調整
+    individual_adjustment:
+      personality_factors:
+        stress_tolerance: 0.2
+        perfectionism: -0.1
+        social_support: 0.15
+        experience_level: 0.1
+
+      # 過去の離脱パターン
+      historical_patterns:
+        previous_burnout_weight: 0.3
+        recovery_time_factor: 0.2
+        warning_signs_weight: 0.5
+
+  # リスクレベル分類
+  risk_classification:
+    levels:
+      safe:
+        threshold: 0.3
+        color: "green"
+        action: "maintain"
+      caution:
+        threshold: 0.6
+        color: "yellow"
+        action: "monitor"
+      warning:
+        threshold: 0.8
+        color: "orange"
+        action: "intervene"
+      critical:
+        threshold: 0.95
+        color: "red"
+        action: "immediate_action"
+
+# ストレス軽減策設定
+stress_mitigation:
+  # 対策カテゴリ
+  mitigation_strategies:
+    # タスク再配分
+    task_reallocation:
+      expertise_match_improvement: 0.4
+      workload_balancing: 0.3
+      deadline_adjustment: 0.2
+      task_simplification: 0.1
+
+    # 社会的サポート
+    social_support:
+      mentoring_assignment: 0.3
+      team_building_activities: 0.2
+      communication_improvement: 0.3
+      conflict_resolution: 0.2
+
+    # 環境改善
+    environment_optimization:
+      workspace_improvement: 0.2
+      tool_optimization: 0.3
+      process_streamlining: 0.3
+      training_provision: 0.2
+
+  # 実装難易度評価
+  implementation_difficulty:
+    factors:
+      resource_requirements: 0.3
+      time_to_implement: 0.3
+      organizational_resistance: 0.2
+      technical_complexity: 0.2
+
+    difficulty_levels:
+      easy: 0.2
+      medium: 0.5
+      hard: 0.8
+      very_hard: 1.0
+
+  # 効果予測
+  effectiveness_prediction:
+    # 短期効果（1-4週間）
+    short_term:
+      stress_reduction_range: [0.1, 0.3]
+      confidence_interval: 0.8
+
+    # 中期効果（1-3ヶ月）
+    medium_term:
+      stress_reduction_range: [0.2, 0.5]
+      confidence_interval: 0.7
+
+    # 長期効果（3ヶ月以上）
+    long_term:
+      stress_reduction_range: [0.3, 0.7]
+      confidence_interval: 0.6
+
+# 監視・アラート設定
+monitoring:
+  # リアルタイム監視
+  real_time:
+    update_frequency_minutes: 15
+    alert_thresholds:
+      stress_spike: 0.2 # 短期間でのストレス増加
+      sustained_high_stress: 0.8 # 持続的な高ストレス
+      team_wide_stress: 0.6 # チーム全体の平均ストレス
+
+  # 予測アラート
+  predictive_alerts:
+    boiling_point_warning_days: 7
+    trend_analysis_window_days: 14
+    early_warning_threshold: 0.7

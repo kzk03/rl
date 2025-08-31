@@ -1,0 +1,179 @@
+# 定着予測専用設定ファイル
+
+# 定着予測モデル設定
+retention_prediction:
+  # モデル選択
+  model_type: "ensemble" # random_forest, xgboost, neural_network, ensemble
+
+  # アンサンブル設定
+  ensemble:
+    models:
+      - type: "random_forest"
+        weight: 0.4
+        params:
+          n_estimators: 100
+          max_depth: 10
+          min_samples_split: 5
+          min_samples_leaf: 2
+          random_state: 42
+      - type: "xgboost"
+        weight: 0.4
+        params:
+          n_estimators: 100
+          max_depth: 8
+          learning_rate: 0.1
+          subsample: 0.8
+          colsample_bytree: 0.8
+          random_state: 42
+      - type: "neural_network"
+        weight: 0.2
+        params:
+          hidden_layer_sizes: [128, 64, 32]
+          activation: "relu"
+          solver: "adam"
+          alpha: 0.001
+          learning_rate: "adaptive"
+          max_iter: 500
+          random_state: 42
+
+  # 特徴量設定
+  features:
+    # 開発者特徴量
+    developer_features:
+      - "expertise_level"
+      - "activity_pattern"
+      - "collaboration_quality"
+      - "learning_velocity"
+      - "satisfaction_level"
+      - "avg_review_score_given"
+      - "avg_review_score_received"
+      - "review_response_time_avg"
+      - "code_review_thoroughness"
+
+    # レビュー特徴量
+    review_features:
+      - "change_complexity"
+      - "change_size"
+      - "technical_domain_match"
+      - "urgency_level"
+      - "estimated_review_effort"
+
+    # 時系列特徴量
+    temporal_features:
+      - "recent_activity_trend"
+      - "seasonal_patterns"
+      - "workload_trend"
+      - "stress_accumulation"
+
+    # 社会的特徴量
+    social_features:
+      - "collaboration_network_centrality"
+      - "mentor_mentee_relationships"
+      - "team_cohesion_score"
+      - "communication_frequency"
+
+  # 特徴量エンジニアリング
+  feature_engineering:
+    # 特徴量選択
+    feature_selection:
+      method: "recursive_feature_elimination"
+      n_features: 50
+      cv_folds: 5
+
+    # 特徴量スケーリング
+    scaling:
+      method: "standard_scaler" # standard_scaler, min_max_scaler, robust_scaler
+
+    # 特徴量変換
+    transformations:
+      - type: "polynomial"
+        degree: 2
+        interaction_only: true
+      - type: "log_transform"
+        features: ["activity_pattern", "review_response_time_avg"]
+
+  # 評価設定
+  evaluation:
+    # 交差検証
+    cross_validation:
+      method: "time_series_split"
+      n_splits: 5
+      test_size: 0.2
+
+    # 評価メトリクス
+    metrics:
+      - "auc_roc"
+      - "auc_pr"
+      - "f1_score"
+      - "precision"
+      - "recall"
+      - "accuracy"
+      - "log_loss"
+
+    # 閾値最適化
+    threshold_optimization:
+      method: "youden_index" # youden_index, f1_optimal, precision_recall_curve
+
+  # 予測設定
+  prediction:
+    # 予測期間
+    prediction_horizons:
+      - 30 # 1ヶ月
+      - 90 # 3ヶ月
+      - 180 # 6ヶ月
+      - 365 # 1年
+
+    # 信頼区間
+    confidence_intervals:
+      enabled: true
+      alpha: 0.05 # 95%信頼区間
+      method: "bootstrap"
+      n_bootstrap: 1000
+
+# 定着要因分析設定
+retention_factors:
+  # SHAP分析
+  shap_analysis:
+    enabled: true
+    explainer_type: "tree" # tree, linear, kernel, deep
+    max_samples: 1000
+
+  # 特徴量重要度分析
+  feature_importance:
+    methods:
+      - "permutation_importance"
+      - "shap_values"
+      - "model_specific"
+
+  # 要因分解
+  factor_decomposition:
+    categories:
+      - "technical_expertise"
+      - "workload_management"
+      - "social_collaboration"
+      - "personal_satisfaction"
+      - "project_characteristics"
+
+# モデル管理設定
+model_management:
+  # モデル保存
+  model_saving:
+    save_best_model: true
+    save_all_models: false
+    model_format: "joblib" # joblib, pickle, onnx
+
+  # モデルバージョニング
+  versioning:
+    enabled: true
+    version_format: "semantic" # semantic, timestamp, incremental
+
+  # モデル監視
+  monitoring:
+    drift_detection:
+      enabled: true
+      method: "ks_test" # ks_test, psi, wasserstein
+      threshold: 0.05
+
+    performance_monitoring:
+      enabled: true
+      alert_threshold: 0.1 # 性能低下の閾値

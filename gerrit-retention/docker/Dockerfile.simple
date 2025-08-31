@@ -1,0 +1,37 @@
+# シンプルなテスト用Dockerfile
+FROM python:3.11-slim
+
+# 作業ディレクトリを設定
+WORKDIR /app
+
+# システムの依存関係をインストール
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# uvをインストール
+RUN pip install --no-cache-dir uv
+
+# プロジェクトファイルをコピー
+COPY pyproject.toml ./
+COPY src/ src/
+COPY configs/ configs/
+COPY scripts/ scripts/
+COPY pipelines/ pipelines/
+COPY training/ training/
+COPY data/ data/
+COPY models/ models/
+
+# 依存関係をインストール
+RUN uv sync
+
+# 環境変数を設定
+ENV PYTHONPATH=/app/src:/app
+ENV PYTHONUNBUFFERED=1
+
+# ヘルスチェック
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import sys; sys.path.insert(0, 'src'); from gerrit_retention.utils.config_manager import get_config_manager; print('OK')"
+
+# デフォルトコマンド
+CMD ["uv", "run", "python", "scripts/run_full_training_pipeline.py", "--environment", "development", "--status"]

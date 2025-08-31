@@ -1,0 +1,62 @@
+# モデル設定ファイル
+models:
+  retention:
+    name: "retention_predictor"
+    path: "models/retention_model.pkl"
+    type: "sklearn"
+    version: "1.0.0"
+    description: "開発者定着予測モデル"
+    features:
+      - "expertise_level"
+      - "collaboration_quality"
+      - "satisfaction_level"
+      - "stress_accumulation"
+      - "commits_per_week"
+    output_type: "probability"
+    confidence_method: "predict_proba"
+
+  stress:
+    name: "stress_predictor"
+    path: "models/stress_model.pkl"
+    type: "sklearn"
+    version: "1.0.0"
+    description: "開発者ストレス予測モデル"
+    features:
+      - "workload_intensity"
+      - "review_pressure"
+      - "collaboration_stress"
+      - "deadline_pressure"
+      - "technical_complexity"
+    output_type: "regression"
+    confidence_method: "predict_std"
+
+  ppo:
+    name: "review_recommender"
+    path: "models/ppo_agent.zip"
+    type: "stable_baselines3"
+    version: "1.0.0"
+    description: "レビュー推薦エージェント"
+    algorithm: "PPO"
+    observation_space: "Box"
+    action_space: "Discrete"
+
+feature_extraction:
+  retention:
+    default_satisfaction: 0.7
+    activity_window_days: 30
+    collaboration_threshold: 0.1
+
+  stress:
+    workload_multiplier: 1.2
+    pressure_threshold: 0.8
+    complexity_weight: 0.3
+
+risk_thresholds:
+  retention:
+    high_risk: 0.3
+    medium_risk: 0.7
+
+  stress:
+    critical: 0.9
+    high: 0.7
+    medium: 0.4

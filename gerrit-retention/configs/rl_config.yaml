@@ -1,0 +1,267 @@
+# 強化学習専用設定ファイル
+
+# 強化学習環境設定
+rl_environment:
+  # 環境パラメータ
+  environment:
+    name: "ReviewAcceptanceEnvironment"
+    version: "v1.0"
+
+    # 状態空間設定
+    observation_space:
+      dimension: 20
+      components:
+        developer_state: 8 # 開発者の状態次元
+        review_state: 6 # レビュー対象の状態次元
+        context_state: 4 # コンテキスト状態次元
+        temporal_state: 2 # 時間的状態次元
+
+      # 状態正規化
+      normalization:
+        method: "min_max" # min_max, standard, robust
+        clip_range: [-3, 3]
+
+    # 行動空間設定
+    action_space:
+      type: "discrete"
+      size: 3
+      actions:
+        0: "decline" # レビュー拒否
+        1: "accept" # レビュー受諾
+        2: "defer" # 判断保留
+
+    # エピソード設定
+    episode:
+      max_length: 100
+      termination_conditions:
+        - "max_length_reached"
+        - "developer_burnout"
+        - "project_deadline"
+
+      # リセット条件
+      reset_conditions:
+        - "episode_end"
+        - "critical_stress_level"
+        - "performance_degradation"
+
+  # 報酬設計
+  reward_design:
+    # 基本報酬
+    base_rewards:
+      accept: 1.0
+      decline: -0.5
+      defer: -0.1
+
+    # ボーナス報酬
+    bonus_rewards:
+      # 継続性ボーナス
+      continuity:
+        weight: 0.3
+        calculation: "exponential_decay"
+        decay_factor: 0.9
+
+      # ストレス管理ボーナス
+      stress_management:
+        weight: 0.2
+        low_stress_bonus: 0.2
+        stress_reduction_bonus: 0.3
+
+      # 品質ボーナス
+      quality:
+        weight: 0.1
+        high_quality_threshold: 0.8
+        quality_bonus_multiplier: 1.5
+
+      # 協力ボーナス
+      collaboration:
+        weight: 0.15
+        new_collaboration_bonus: 0.15
+        relationship_strengthening: 0.1
+
+    # ペナルティ
+    penalties:
+      # 過負荷ペナルティ
+      overload:
+        weight: -0.4
+        threshold: 0.8
+        severity_multiplier: 2.0
+
+      # 品質低下ペナルティ
+      quality_degradation:
+        weight: -0.3
+        threshold: 0.5
+
+      # 締切遅延ペナルティ
+      deadline_miss:
+        weight: -0.6
+        escalation_factor: 1.2
+
+# PPOエージェント設定
+ppo_agent:
+  # ネットワーク構造
+  network:
+    # ポリシーネットワーク
+    policy_network:
+      hidden_layers: [128, 64, 32]
+      activation: "tanh"
+      output_activation: "softmax"
+      dropout_rate: 0.1
+
+    # 価値ネットワーク
+    value_network:
+      hidden_layers: [128, 64, 32]
+      activation: "tanh"
+      output_activation: "linear"
+      dropout_rate: 0.1
+
+    # 共有層
+    shared_layers:
+      enabled: true
+      hidden_layers: [256, 128]
+      activation: "relu"
+
+  # 学習パラメータ
+  learning:
+    # 学習率
+    learning_rates:
+      policy: 3e-4
+      value: 3e-4
+      schedule: "linear_decay" # constant, linear_decay, exponential_decay
+      min_lr: 1e-6
+
+    # PPO固有パラメータ
+    ppo_params:
+      clip_epsilon: 0.2
+      clip_epsilon_decay: 0.99
+      entropy_coefficient: 0.01
+      value_loss_coefficient: 0.5
+      max_grad_norm: 0.5
+
+    # GAE（Generalized Advantage Estimation）
+    gae:
+      gamma: 0.99
+      lambda: 0.95
+
+    # バッチ学習
+    batch_learning:
+      batch_size: 64
+      mini_batch_size: 16
+      n_epochs: 10
+      buffer_size: 2048
+
+  # 探索設定
+  exploration:
+    # 初期探索
+    initial_exploration:
+      epsilon: 0.3
+      decay_rate: 0.995
+      min_epsilon: 0.05
+
+    # ノイズ注入
+    noise_injection:
+      enabled: true
+      noise_type: "gaussian"
+      noise_scale: 0.1
+      noise_decay: 0.99
+
+# 訓練設定
+training:
+  # 訓練パラメータ
+  parameters:
+    total_timesteps: 1000000
+    eval_frequency: 10000
+    save_frequency: 50000
+    log_frequency: 1000
+
+  # 早期停止
+  early_stopping:
+    enabled: true
+    patience: 50000
+    min_improvement: 0.01
+    metric: "mean_reward"
+
+  # カリキュラム学習
+  curriculum_learning:
+    enabled: true
+    stages:
+      - name: "basic_acceptance"
+        duration: 200000
+        difficulty: 0.3
+      - name: "stress_management"
+        duration: 300000
+        difficulty: 0.6
+      - name: "advanced_optimization"
+        duration: 500000
+        difficulty: 1.0
+
+# 評価設定
+evaluation:
+  # 評価メトリクス
+  metrics:
+    - "mean_reward"
+    - "episode_length"
+    - "acceptance_rate"
+    - "stress_level"
+    - "quality_score"
+    - "collaboration_score"
+
+  # 評価環境
+  eval_environment:
+    n_eval_episodes: 100
+    deterministic: true
+    render: false
+
+  # ベンチマーク
+  benchmarks:
+    - name: "random_policy"
+      description: "ランダム行動ポリシー"
+    - name: "greedy_policy"
+      description: "貪欲ポリシー"
+    - name: "heuristic_policy"
+      description: "ヒューリスティックポリシー"
+
+# マルチエージェント設定
+multi_agent:
+  enabled: false # 将来の拡張用
+
+  # エージェント設定
+  agents:
+    task_recommender:
+      type: "ppo"
+      observation_space_dim: 15
+      action_space_size: 5
+
+    review_assigner:
+      type: "ppo"
+      observation_space_dim: 12
+      action_space_size: 3
+
+  # 協調学習
+  coordination:
+    communication_enabled: true
+    shared_experience: false
+    centralized_critic: false
+
+# 実験設定
+experiments:
+  # ハイパーパラメータ最適化
+  hyperparameter_optimization:
+    enabled: false
+    method: "optuna" # optuna, ray_tune, hyperopt
+    n_trials: 100
+
+    # 最適化対象パラメータ
+    search_space:
+      learning_rate: [1e-5, 1e-3]
+      clip_epsilon: [0.1, 0.3]
+      entropy_coefficient: [0.001, 0.1]
+      batch_size: [32, 128]
+
+  # アブレーション研究
+  ablation_studies:
+    - name: "reward_components"
+      description: "報酬成分の影響分析"
+    - name: "network_architecture"
+      description: "ネットワーク構造の影響分析"
+    - name: "exploration_strategies"
+      description: "探索戦略の比較"

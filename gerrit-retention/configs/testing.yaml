@@ -1,0 +1,70 @@
+# テスト環境設定ファイル
+
+# 基本設定を継承
+defaults:
+  - gerrit_config
+
+# テスト環境固有の設定
+gerrit:
+  url: "https://gerrit-test.example.com"
+  projects:
+    - "test-project-1"
+    - "test-project-2"
+  data_extraction:
+    batch_size: 50 # テスト環境では小さなバッチサイズ
+    rate_limit_delay: 0.1
+    max_retries: 2
+    timeout: 10
+
+# ログ設定（テスト環境）
+logging:
+  level: "DEBUG"
+  format: "text"
+  file: "logs/testing.log"
+
+# 機械学習設定（テスト環境）
+ml:
+  device: "cpu" # テスト環境ではCPUを使用
+  random_seed: 123 # テスト用の固定シード
+
+# 定着予測設定（テスト環境）
+retention_prediction:
+  model_params:
+    n_estimators: 5 # 高速テストのため最小値
+    max_depth: 3
+
+# 強化学習環境設定（テスト環境）
+rl_environment:
+  max_episode_length: 10 # 短いエピソード
+
+# PPOエージェント設定（テスト環境）
+ppo_agent:
+  batch_size: 8 # 最小バッチサイズ
+  n_epochs: 2
+
+# 可視化設定（テスト環境）
+visualization:
+  output_dir: "outputs/test_visualizations"
+  figure_dpi: 100 # 低解像度で高速化
+
+# キャッシュ設定（テスト環境）
+cache:
+  enabled: false # テスト環境ではキャッシュ無効
+
+# 実験追跡設定（テスト環境）
+experiment_tracking:
+  enabled: false # テスト環境では無効
+
+# テスト固有設定
+testing:
+  mock_gerrit_api: true # モックAPIを使用
+  use_sample_data: true
+  sample_data_size: 100
+  enable_fast_mode: true
+  skip_heavy_computations: true
+
+# 時系列整合性設定（テスト環境）
+temporal_consistency:
+  enable_strict_validation: false # テスト環境では緩和
+  train_end_date: "2022-06-30"
+  test_start_date: "2022-07-01"

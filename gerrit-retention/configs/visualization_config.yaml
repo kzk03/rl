@@ -1,0 +1,320 @@
+# 可視化専用設定ファイル
+
+# 可視化全般設定
+visualization:
+  # 出力設定
+  output:
+    base_dir: "outputs/visualizations"
+    subdirectories:
+      heatmaps: "heatmaps"
+      charts: "charts"
+      dashboards: "dashboards"
+      reports: "reports"
+
+    # ファイル形式
+    formats:
+      static: ["png", "pdf", "svg"]
+      interactive: ["html", "json"]
+      default_format: "png"
+
+    # 解像度・品質
+    quality:
+      dpi: 300
+      figure_size: [12, 8]
+      font_size: 12
+      line_width: 2
+
+  # カラーパレット
+  colors:
+    # メインカラーパレット
+    primary_palette: "viridis"
+    secondary_palette: "plasma"
+
+    # カスタムカラー
+    custom_colors:
+      stress_levels:
+        safe: "#2E8B57" # SeaGreen
+        caution: "#FFD700" # Gold
+        warning: "#FF8C00" # DarkOrange
+        critical: "#DC143C" # Crimson
+
+      retention_probability:
+        high: "#228B22" # ForestGreen
+        medium: "#FFA500" # Orange
+        low: "#FF4500" # OrangeRed
+
+      review_scores:
+        positive: "#32CD32" # LimeGreen
+        neutral: "#808080" # Gray
+        negative: "#FF6347" # Tomato
+
+# ヒートマップ設定
+heatmaps:
+  # レスポンス時間ヒートマップ
+  response_time:
+    title: "開発者レスポンス時間パターン"
+    x_axis: "時間帯"
+    y_axis: "曜日"
+    colorbar_label: "平均レスポンス時間（時間）"
+
+    # 時間軸設定
+    time_bins:
+      start_hour: 0
+      end_hour: 24
+      bin_size: 2 # 2時間単位
+
+    # 曜日設定
+    weekdays: ["月", "火", "水", "木", "金", "土", "日"]
+
+    # カラーマップ
+    colormap: "RdYlBu_r"
+    vmin: 0
+    vmax: 48 # 48時間
+
+  # 受諾率ヒートマップ
+  acceptance_rate:
+    title: "レビュー受諾率パターン"
+    x_axis: "技術領域"
+    y_axis: "開発者"
+    colorbar_label: "受諾率"
+
+    # 技術領域
+    tech_domains:
+      - "Frontend"
+      - "Backend"
+      - "Database"
+      - "DevOps"
+      - "Testing"
+      - "Documentation"
+
+    colormap: "RdYlGn"
+    vmin: 0
+    vmax: 1
+
+  # ストレスレベルヒートマップ
+  stress_level:
+    title: "開発者ストレスレベル推移"
+    x_axis: "週"
+    y_axis: "開発者"
+    colorbar_label: "ストレスレベル"
+
+    colormap: "Reds"
+    vmin: 0
+    vmax: 1
+
+# チャート設定
+charts:
+  # レーダーチャート
+  radar_chart:
+    # 専門性レーダーチャート
+    expertise:
+      title: "開発者専門性プロファイル"
+      categories:
+        - "プログラミング言語"
+        - "フレームワーク"
+        - "アーキテクチャ"
+        - "ドメイン知識"
+        - "ツール・技術"
+        - "ソフトスキル"
+
+      # スケール設定
+      scale_min: 0
+      scale_max: 5
+      grid_lines: 5
+
+      # スタイル
+      line_color: "#1f77b4"
+      fill_alpha: 0.3
+      marker_size: 8
+
+  # 時系列チャート
+  time_series:
+    # ストレス推移
+    stress_trend:
+      title: "ストレスレベル推移"
+      x_axis: "日付"
+      y_axis: "ストレスレベル"
+
+      # 移動平均
+      moving_average:
+        enabled: true
+        window: 7 # 7日移動平均
+        color: "#ff7f0e"
+
+      # 閾値線
+      threshold_lines:
+        - value: 0.6
+          label: "注意レベル"
+          color: "#ffcc00"
+          style: "dashed"
+        - value: 0.8
+          label: "警告レベル"
+          color: "#ff6600"
+          style: "dashed"
+
+    # 定着確率推移
+    retention_trend:
+      title: "定着確率推移"
+      x_axis: "日付"
+      y_axis: "定着確率"
+
+      confidence_interval:
+        enabled: true
+        alpha: 0.3
+        color: "#cccccc"
+
+  # 散布図
+  scatter_plot:
+    # ストレス vs 定着確率
+    stress_vs_retention:
+      title: "ストレスレベル vs 定着確率"
+      x_axis: "ストレスレベル"
+      y_axis: "定着確率"
+
+      # 回帰線
+      regression_line:
+        enabled: true
+        color: "#ff0000"
+        confidence_interval: true
+
+# ダッシュボード設定
+dashboard:
+  # リアルタイムダッシュボード
+  real_time:
+    title: "開発者定着予測ダッシュボード"
+    refresh_interval: 300 # 5分間隔
+
+    # レイアウト
+    layout:
+      rows: 3
+      columns: 4
+
+    # ウィジェット設定
+    widgets:
+      - type: "metric_card"
+        title: "平均ストレスレベル"
+        position: [0, 0]
+        size: [1, 1]
+
+      - type: "metric_card"
+        title: "高リスク開発者数"
+        position: [0, 1]
+        size: [1, 1]
+
+      - type: "line_chart"
+        title: "ストレス推移"
+        position: [0, 2]
+        size: [2, 2]
+
+      - type: "heatmap"
+        title: "チームストレス分布"
+        position: [1, 0]
+        size: [2, 2]
+
+      - type: "bar_chart"
+        title: "定着確率分布"
+        position: [2, 2]
+        size: [1, 2]
+
+  # 週次レポートダッシュボード
+  weekly_report:
+    title: "週次開発者定着レポート"
+
+    sections:
+      - name: "サマリー"
+        charts:
+          - "team_stress_overview"
+          - "retention_probability_distribution"
+          - "key_metrics_summary"
+
+      - name: "詳細分析"
+        charts:
+          - "individual_stress_trends"
+          - "review_acceptance_patterns"
+          - "collaboration_network"
+
+      - name: "推奨アクション"
+        charts:
+          - "high_risk_developers"
+          - "mitigation_strategies"
+          - "success_stories"
+
+# インタラクティブ可視化設定
+interactive:
+  # Plotly設定
+  plotly:
+    theme: "plotly_white"
+
+    # ホバー情報
+    hover_template:
+      developer_info: "<b>%{customdata[0]}</b><br>ストレス: %{y:.2f}<br>日付: %{x}<extra></extra>"
+
+    # ズーム・パン設定
+    zoom_pan:
+      enabled: true
+      double_click: "reset"
+
+    # 凡例設定
+    legend:
+      orientation: "h"
+      x: 0.5
+      y: -0.1
+
+  # Bokeh設定
+  bokeh:
+    theme: "light_minimal"
+
+    # ツール設定
+    tools:
+      - "pan"
+      - "wheel_zoom"
+      - "box_zoom"
+      - "reset"
+      - "save"
+      - "hover"
+
+# レポート生成設定
+reports:
+  # 自動レポート生成
+  automated:
+    enabled: true
+    schedule: "weekly" # daily, weekly, monthly
+
+    # レポートテンプレート
+    templates:
+      executive_summary:
+        title: "開発者定着予測 - エグゼクティブサマリー"
+        sections:
+          - "key_metrics"
+          - "risk_assessment"
+          - "recommendations"
+
+      technical_report:
+        title: "開発者定着予測 - 技術レポート"
+        sections:
+          - "model_performance"
+          - "feature_importance"
+          - "detailed_analysis"
+
+      team_report:
+        title: "チーム別開発者定着レポート"
+        sections:
+          - "team_overview"
+          - "individual_profiles"
+          - "action_items"
+
+  # カスタムレポート
+  custom:
+    # フィルタリング
+    filters:
+      date_range: true
+      developer_groups: true
+      project_teams: true
+      risk_levels: true
+
+    # エクスポート形式
+    export_formats:
+      - "pdf"
+      - "html"
+      - "excel"
+      - "powerpoint"
