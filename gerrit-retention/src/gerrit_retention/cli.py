@@ -120,17 +120,37 @@ def handle_train_command(args: argparse.Namespace) -> int:
     logger.info(f"訓練を開始: {args.component}")
     
     try:
+        # 訓練パイプラインを使用してモデルを訓練
+        from gerrit_retention.pipelines.training_pipeline import TrainingPipeline
+        
+        pipeline = TrainingPipeline(args.config)
+        
+        # 訓練するモデルを決定
+        models_to_train = []
         if args.component in ["retention", "all"]:
             logger.info("定着予測モデルを訓練中...")
-            # TODO: 実装
+            models_to_train.append("retention_model")
             
         if args.component in ["stress", "all"]:
             logger.info("ストレス分析モデルを訓練中...")
-            # TODO: 実装
+            models_to_train.append("stress_model")
             
         if args.component in ["rl", "all"]:
             logger.info("強化学習エージェントを訓練中...")
-            # TODO: 実装
+            models_to_train.append("rl_agent")
+        
+        # 訓練パイプラインを実行
+        result = pipeline.run_training_pipeline(
+            models=models_to_train,
+            backup_existing=True,
+            evaluate_after_training=True
+        )
+        
+        if result['success']:
+            logger.info(f"訓練完了: {result['summary']['successful_models']}/{result['summary']['total_models']}モデル成功")
+        else:
+            logger.error(f"訓練失敗: {result['summary']['successful_models']}/{result['summary']['total_models']}モデル成功")
+            return 1
             
         logger.info("訓練が完了しました")
         return 0
@@ -145,7 +165,25 @@ def handle_predict_command(args: argparse.Namespace) -> int:
     logger.info(f"開発者の定着確率を予測中: {args.developer}")
     
     try:
-        # TODO: 実装
+        # 定着予測システムを使用して予測を実行
+        from gerrit_retention.prediction.retention_predictor import RetentionPredictor
+        from gerrit_retention.utils.config_manager import get_config_manager
+        
+        config_manager = get_config_manager(args.config)
+        predictor = RetentionPredictor(config_manager.config)
+        
+        # 開発者の定着確率を予測
+        prediction_result = predictor.predict_retention(args.developer)
+        
+        # 結果を出力
+        if args.output:
+            output_path = Path(args.output)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(prediction_result, f, ensure_ascii=False, indent=2)
+            logger.info(f"予測結果を保存しました: {output_path}")
+        else:
+            print(json.dumps(prediction_result, ensure_ascii=False, indent=2))
+        
         logger.info("予測が完了しました")
         return 0
         
@@ -159,8 +197,67 @@ def handle_analyze_command(args: argparse.Namespace) -> int:
     logger.info(f"分析レポートを生成中: {args.type}")
     
     try:
-        # TODO: 実装
-        logger.info("分析が完了しました")
+        # 分析レポートシステムを使用して分析を実行
+        from gerrit_retention.analysis.reports.advanced_retention_insights import (
+            AdvancedRetentionInsights,
+        )
+        from gerrit_retention.analysis.reports.retention_factor_analysis import (
+            RetentionFactorAnalyzer,
+        )
+        from gerrit_retention.utils.config_manager import get_config_manager
+        
+        config_manager = get_config_manager(args.config)
+        
+        # 出力ディレクトリを準備
+        output_dir = Path(args.output) if args.output else Path("outputs/analysis")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        analysis_results = {}
+        
+        if args.type in ["retention", "all"]:
+            logger.info("継続要因分析を実行中...")
+            analyzer = RetentionFactorAnalyzer(config_manager.config)
+            retention_result = analyzer.run_comprehensive_analysis()
+            analysis_results['retention'] = retention_result
+            
+            # レポートを保存
+            report_path = output_dir / f"retention_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(retention_result, f, ensure_ascii=False, indent=2)
+            logger.info(f"継続要因分析レポートを保存: {report_path}")
+        
+        if args.type in ["behavior", "all"]:
+            logger.info("高度分析を実行中...")
+            insights = AdvancedRetentionInsights(config_manager.config)
+            behavior_result = insights.generate_comprehensive_insights()
+            analysis_results['behavior'] = behavior_result
+            
+            # レポートを保存
+            report_path = output_dir / f"behavior_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(behavior_result, f, ensure_ascii=False, indent=2)
+            logger.info(f"行動分析レポートを保存: {report_path}")
+        
+        if args.type in ["stress", "all"]:
+            logger.info("ストレス分析を実行中...")
+            # ストレス分析は既存の実装を使用
+            from gerrit_retention.prediction.stress_analyzer import StressAnalyzer
+            stress_analyzer = StressAnalyzer(config_manager.config)
+            stress_result = stress_analyzer.analyze_stress_patterns()
+            analysis_results['stress'] = stress_result
+            
+            # レポートを保存
+            report_path = output_dir / f"stress_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(report_path, 'w', encoding='utf-8') as f:
+                json.dump(stress_result, f, ensure_ascii=False, indent=2)
+            logger.info(f"ストレス分析レポートを保存: {report_path}")
+        
+        # 統合レポートを生成
+        summary_report_path = output_dir / f"analysis_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(summary_report_path, 'w', encoding='utf-8') as f:
+            json.dump(analysis_results, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"分析が完了しました。結果は {output_dir} に保存されました")
         return 0
         
     except Exception as e:
@@ -173,8 +270,71 @@ def handle_extract_command(args: argparse.Namespace) -> int:
     logger.info(f"Gerritからデータを抽出中: {args.project}")
     
     try:
-        # TODO: 実装
-        logger.info("データ抽出が完了しました")
+        # Gerritデータ抽出システムを使用してデータを抽出
+        from gerrit_retention.data_processing.gerrit_extraction.gerrit_client import (
+            GerritClient,
+        )
+        from gerrit_retention.utils.config_manager import get_config_manager
+        
+        config_manager = get_config_manager(args.config)
+        gerrit_config = config_manager.get('gerrit', {})
+        
+        # Gerritクライアントを初期化
+        client = GerritClient(gerrit_config)
+        
+        # データ抽出パラメータを設定
+        extraction_params = {
+            'project': args.project,
+            'start_date': args.start_date,
+            'end_date': args.end_date
+        }
+        
+        logger.info(f"Gerritからデータを抽出中: {args.project}")
+        
+        # データを抽出
+        extraction_result = client.extract_project_data(**extraction_params)
+        
+        # 結果を保存
+        output_dir = Path("data/raw") / args.project
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # 変更データを保存
+        if extraction_result.get('changes'):
+            changes_file = output_dir / f"changes_{timestamp}.json"
+            with open(changes_file, 'w', encoding='utf-8') as f:
+                json.dump(extraction_result['changes'], f, ensure_ascii=False, indent=2)
+            logger.info(f"変更データを保存: {changes_file}")
+        
+        # 開発者データを保存
+        if extraction_result.get('developers'):
+            developers_file = output_dir / f"developers_{timestamp}.json"
+            with open(developers_file, 'w', encoding='utf-8') as f:
+                json.dump(extraction_result['developers'], f, ensure_ascii=False, indent=2)
+            logger.info(f"開発者データを保存: {developers_file}")
+        
+        # 抽出サマリーを保存
+        summary_file = output_dir / f"extraction_summary_{timestamp}.json"
+        summary = {
+            'project': args.project,
+            'extraction_date': datetime.now().isoformat(),
+            'parameters': extraction_params,
+            'results': {
+                'changes_count': len(extraction_result.get('changes', [])),
+                'developers_count': len(extraction_result.get('developers', [])),
+                'date_range': {
+                    'start': args.start_date,
+                    'end': args.end_date
+                }
+            }
+        }
+        
+        with open(summary_file, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"データ抽出が完了しました。結果は {output_dir} に保存されました")
+        logger.info(f"抽出件数: 変更 {summary['results']['changes_count']}件, 開発者 {summary['results']['developers_count']}名")
         return 0
         
     except Exception as e:

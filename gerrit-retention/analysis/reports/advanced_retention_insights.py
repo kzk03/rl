@@ -471,15 +471,106 @@ class AdvancedRetentionInsights:
     
     def _identify_cluster_success_factors(self, cluster_data: pd.DataFrame) -> List[str]:
         """クラスター成功要因を特定"""
-        return ["mock_factor"]
+        success_factors = []
+        
+        # 継続している開発者の特徴を分析
+        retained_devs = cluster_data[cluster_data.get('is_retained', True)]
+        
+        if len(retained_devs) > 0:
+            # 数値特徴量の平均値が高い項目を特定
+            numeric_cols = retained_devs.select_dtypes(include=[np.number]).columns
+            
+            for col in numeric_cols:
+                if col in ['is_retained', 'cluster']:
+                    continue
+                    
+                retained_mean = retained_devs[col].mean()
+                overall_mean = cluster_data[col].mean()
+                
+                # 継続者の平均が全体平均より20%以上高い場合は成功要因
+                if retained_mean > overall_mean * 1.2:
+                    success_factors.append(f"高い{col}")
+            
+            # 特徴的なパターンを追加
+            if retained_devs['changes_authored'].mean() > cluster_data['changes_authored'].mean():
+                success_factors.append("積極的な貢献")
+            
+            if retained_devs.get('collaboration_score', 0).mean() > cluster_data.get('collaboration_score', 0).mean():
+                success_factors.append("協力的な関係構築")
+        
+        return success_factors if success_factors else ["継続的な活動", "コミュニティ参加"]
     
     def _identify_cluster_risk_factors(self, cluster_data: pd.DataFrame) -> List[str]:
         """クラスターリスク要因を特定"""
-        return ["mock_risk"]
+        risk_factors = []
+        
+        # 離脱した開発者の特徴を分析
+        churned_devs = cluster_data[~cluster_data.get('is_retained', True)]
+        
+        if len(churned_devs) > 0:
+            # 数値特徴量の平均値が低い項目を特定
+            numeric_cols = churned_devs.select_dtypes(include=[np.number]).columns
+            
+            for col in numeric_cols:
+                if col in ['is_retained', 'cluster']:
+                    continue
+                    
+                churned_mean = churned_devs[col].mean()
+                overall_mean = cluster_data[col].mean()
+                
+                # 離脱者の平均が全体平均より20%以上低い場合はリスク要因
+                if churned_mean < overall_mean * 0.8:
+                    risk_factors.append(f"低い{col}")
+            
+            # 特徴的なリスクパターンを追加
+            if churned_devs['changes_authored'].mean() < cluster_data['changes_authored'].mean() * 0.5:
+                risk_factors.append("貢献活動の減少")
+            
+            if churned_devs.get('review_participation', 0).mean() < cluster_data.get('review_participation', 0).mean() * 0.5:
+                risk_factors.append("レビュー参加の低下")
+        
+        return risk_factors if risk_factors else ["活動量の減少", "コミュニティからの孤立"]
     
     def _generate_cluster_recommendations(self, cluster_data: pd.DataFrame) -> List[str]:
         """クラスター推奨事項を生成"""
-        return ["mock_recommendation"]
+        recommendations = []
+        
+        # クラスターの特徴に基づいて推奨事項を生成
+        cluster_size = len(cluster_data)
+        retention_rate = cluster_data.get('is_retained', True).mean() if 'is_retained' in cluster_data.columns else 0.7
+        
+        # 継続率に基づく推奨事項
+        if retention_rate < 0.5:
+            recommendations.extend([
+                "緊急の介入が必要",
+                "個別メンタリングプログラムの導入",
+                "負荷軽減策の実施"
+            ])
+        elif retention_rate < 0.7:
+            recommendations.extend([
+                "予防的支援の強化",
+                "コミュニティ活動への参加促進",
+                "スキル開発機会の提供"
+            ])
+        else:
+            recommendations.extend([
+                "現在の良好な状態を維持",
+                "他グループのメンター役として活用",
+                "リーダーシップ機会の提供"
+            ])
+        
+        # 活動レベルに基づく推奨事項
+        avg_activity = cluster_data.get('changes_authored', 0).mean()
+        if avg_activity < 5:
+            recommendations.append("小さなタスクから始める段階的な参加促進")
+        elif avg_activity > 20:
+            recommendations.append("過度な負荷を避けるための作業量調整")
+        
+        # 協力度に基づく推奨事項
+        if cluster_data.get('collaboration_score', 0).mean() < 0.3:
+            recommendations.append("ペアプログラミングやコードレビューの促進")
+        
+        return recommendations
     
     def _name_archetypes(self, archetypes: Dict[str, Any]) -> Dict[str, Any]:
         """アーキタイプに名前を付ける"""

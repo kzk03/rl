@@ -517,24 +517,93 @@ class RetentionFactorAnalyzer:
     
     # ヘルパーメソッド（実装の詳細は省略）
     def _get_last_activity_date(self, dev_id: str) -> Optional[datetime]:
-        """開発者の最後の活動日を取得"""
-        if not self.reviews_data:
-            # モックデータで多様性を作る
-            import random
-            days_ago = random.randint(10, 200)
-            return datetime.now() - timedelta(days=days_ago)
-        
-        # 実際のレビューデータから最後の活動を検索
+        """開発者の最後の活動日を取得（実際のレビューデータから正確に計算）"""
         last_activity = None
-        for review in self.reviews_data:
-            # レビューデータの構造に応じて実装
-            # ここではモック実装
-            pass
         
-        # モックデータで多様性を作る
-        import random
-        days_ago = random.randint(10, 200)
-        return datetime.now() - timedelta(days=days_ago)
+        # まずレビューデータから実際の最新活動日を計算
+        if self.reviews_data:
+            for review in self.reviews_data:
+                try:
+                    activity_dates = []
+                    
+                    # 作成者として活動
+                    if 'owner' in review and review['owner'].get('email') == dev_id:
+                        # 作成日と更新日の両方をチェック
+                        if review.get('created'):
+                            activity_dates.append(review['created'])
+                        if review.get('updated'):
+                            activity_dates.append(review['updated'])
+                        if review.get('submitted'):
+                            activity_dates.append(review['submitted'])
+                    
+                    # レビュアーとして活動
+                    if 'labels' in review:
+                        for label_name, label_info in review['labels'].items():
+                            for vote in label_info.get('all', []):
+                                if vote.get('email') == dev_id:
+                                    # レビュー活動の場合は更新日を重視
+                                    if review.get('updated'):
+                                        activity_dates.append(review['updated'])
+                                    elif review.get('created'):
+                                        activity_dates.append(review['created'])
+                    
+                    # 最新の活動日を更新
+                    for activity_date_str in activity_dates:
+                        if activity_date_str:
+                            try:
+                                # ナノ秒の場合は切り詰める
+                                if activity_date_str.count('.') == 1 and len(activity_date_str.split('.')[-1]) > 6:
+                                    activity_date_str = activity_date_str[:26]
+                                
+                                formats = [
+                                    '%Y-%m-%d %H:%M:%S.%f',
+                                    '%Y-%m-%d %H:%M:%S',
+                                    '%Y-%m-%d'
+                                ]
+                                
+                                for fmt in formats:
+                                    try:
+                                        activity_date = datetime.strptime(activity_date_str, fmt)
+                                        if not last_activity or activity_date > last_activity:
+                                            last_activity = activity_date
+                                        break
+                                    except ValueError:
+                                        continue
+                            except ValueError:
+                                continue
+                                
+                except (KeyError, TypeError):
+                    continue
+        
+        # レビューデータから見つからない場合は開発者データのlast_activityを使用
+        if not last_activity:
+            for dev in self.developers_data:
+                if dev['developer_id'] == dev_id:
+                    if 'last_activity' in dev:
+                        try:
+                            last_activity_str = dev['last_activity']
+                            # ナノ秒の場合は切り詰める
+                            if last_activity_str.count('.') == 1 and len(last_activity_str.split('.')[-1]) > 6:
+                                last_activity_str = last_activity_str[:26]
+                            
+                            formats = [
+                                '%Y-%m-%d %H:%M:%S.%f',
+                                '%Y-%m-%d %H:%M:%S',
+                                '%Y-%m-%d'
+                            ]
+                            
+                            for fmt in formats:
+                                try:
+                                    last_activity = datetime.strptime(last_activity_str, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                                    
+                        except (ValueError, KeyError):
+                            pass
+                    break
+        
+        return last_activity
     
     def _get_activity_count(self, dev_id: str) -> int:
         """開発者の活動回数を取得"""
