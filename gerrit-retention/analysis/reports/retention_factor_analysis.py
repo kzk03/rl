@@ -545,7 +545,7 @@ class RetentionFactorAnalyzer:
         
         # モックデータで多様性を作る
         import random
-        return random.randint(1, 50)
+        return 10  # デフォルト値
     
     def _safe_divide(self, numerator: float, denominator: float) -> float:
         """安全な除算"""
@@ -582,92 +582,186 @@ class RetentionFactorAnalyzer:
             logger.warning(f"日付解析エラー: {first_seen}, {e}")
             return 365  # デフォルト値
     
-    # その他のヘルパーメソッドは実装省略（モック値を返す）
+    # 実装済みヘルパーメソッド（実装クラスを使用）
+    def _get_implementation(self):
+        """実装クラスのインスタンスを取得"""
+        if not hasattr(self, '_impl'):
+            try:
+                from .retention_factor_implementation import (
+                    RetentionFactorImplementation,
+                )
+            except ImportError:
+                # 相対インポートが失敗した場合の代替
+                import os
+                import sys
+                sys.path.insert(0, os.path.dirname(__file__))
+                from retention_factor_implementation import (
+                    RetentionFactorImplementation,
+                )
+            
+            self._impl = RetentionFactorImplementation(
+                self.developers_data, self.reviews_data, self.features_data
+            )
+        return self._impl
+    
     def _calculate_activity_frequency(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_activity_frequency(dev_id)
     
     def _calculate_activity_consistency(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_activity_consistency(dev_id)
     
     def _calculate_collaboration_diversity(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_collaboration_diversity(dev_id)
     
     def _calculate_network_centrality(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_network_centrality(dev_id)
     
     def _calculate_mentoring_activity(self, dev_id: str) -> float:
-        return np.random.uniform(0.0, 1.0)
+        return self._get_implementation().calculate_mentoring_activity(dev_id)
     
     def _calculate_avg_review_quality(self, dev_id: str) -> float:
-        return np.random.uniform(0.5, 1.0)
+        return self._get_implementation().calculate_avg_review_quality(dev_id)
     
     def _calculate_review_thoroughness(self, dev_id: str) -> float:
-        return np.random.uniform(0.3, 1.0)
+        return self._get_implementation().calculate_review_thoroughness(dev_id)
     
     def _calculate_response_speed(self, dev_id: str) -> float:
-        return np.random.uniform(0.2, 1.0)
+        return self._get_implementation().calculate_response_speed(dev_id)
     
     def _calculate_workload_variability(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_workload_variability(dev_id)
     
     def _calculate_acceptance_rate(self, dev_id: str) -> float:
-        return np.random.uniform(0.3, 1.0)
+        return self._get_implementation().calculate_acceptance_rate(dev_id)
     
     def _calculate_positive_feedback_ratio(self, dev_id: str) -> float:
-        return np.random.uniform(0.4, 1.0)
+        return self._get_implementation().calculate_positive_feedback_ratio(dev_id)
     
     def _calculate_skill_diversity(self, dev_id: str) -> float:
-        return np.random.uniform(0.2, 1.0)
+        return self._get_implementation().calculate_skill_diversity(dev_id)
     
     def _calculate_learning_trajectory(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_learning_trajectory(dev_id)
     
     def _calculate_expertise_recognition(self, dev_id: str) -> float:
-        return np.random.uniform(0.2, 1.0)
+        return self._get_implementation().calculate_expertise_recognition(dev_id)
     
     def _calculate_community_integration(self, dev_id: str) -> float:
-        return np.random.uniform(0.1, 1.0)
+        return self._get_implementation().calculate_community_integration(dev_id)
     
     def _calculate_leadership_indicators(self, dev_id: str) -> float:
-        return np.random.uniform(0.0, 1.0)
+        return self._get_implementation().calculate_leadership_indicators(dev_id)
     
     def _calculate_social_support(self, dev_id: str) -> float:
-        return np.random.uniform(0.2, 1.0)
+        return self._get_implementation().calculate_social_support(dev_id)
     
     def _statistical_significance_tests(self, df: pd.DataFrame) -> Dict[str, Any]:
         """統計的有意性テスト"""
-        # 実装省略
-        return {"mock": "statistical_tests"}
+        return self._get_implementation().statistical_significance_tests(df)
     
     def _identify_top_factors(self, importance_results: Dict[str, Any]) -> Dict[str, Any]:
         """最重要要因を特定"""
-        # 実装省略
-        return {"mock": "top_factors"}
+        return self._get_implementation().identify_top_factors(importance_results)
     
     def _compare_retained_vs_churned(self, df: pd.DataFrame) -> Dict[str, Any]:
         """継続者と離脱者を比較"""
-        # 実装省略
-        return {"mock": "comparison"}
+        return self._get_implementation().compare_retained_vs_churned(df)
     
     def _analyze_retention_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
         """継続パターンを分析"""
-        # 実装省略
-        return {"mock": "patterns"}
+        # より詳細な実装が必要な場合は後で追加
+        comparison = self._compare_retained_vs_churned(df)
+        return {
+            "patterns_identified": True,
+            "retention_rate": comparison.get('sample_sizes', {}).get('retention_rate', 0),
+            "key_patterns": comparison.get('top_differentiators', [])[:5]
+        }
     
     def _identify_risk_factors(self, df: pd.DataFrame, importance_results: Dict[str, Any]) -> Dict[str, Any]:
         """リスク要因を特定"""
-        # 実装省略
-        return {"mock": "risk_factors"}
+        comparison = self._compare_retained_vs_churned(df)
+        top_factors = self._identify_top_factors(importance_results)
+        
+        # 離脱者で高い値を示す特徴量をリスク要因として特定
+        risk_factors = []
+        for feature_comp in comparison.get('top_differentiators', [])[:10]:
+            if feature_comp['difference'] < 0:  # 継続者より離脱者の方が高い
+                risk_factors.append({
+                    'factor': feature_comp['feature'],
+                    'risk_level': abs(feature_comp['relative_difference']),
+                    'description': f"離脱者で{abs(feature_comp['relative_difference']):.1%}高い"
+                })
+        
+        return {
+            'high_risk_factors': risk_factors[:5],
+            'total_risk_factors': len(risk_factors),
+            'risk_threshold': 0.2
+        }
     
     def _generate_recommendations(self, insights: Dict[str, Any]) -> List[Dict[str, Any]]:
         """改善提案を生成"""
-        # 実装省略
-        return [{"mock": "recommendations"}]
+        recommendations = []
+        
+        # トップ要因に基づく推奨事項
+        top_factors = insights.get('top_factors', {})
+        if top_factors.get('ranking'):
+            top_3 = top_factors['ranking'][:3]
+            for i, factor in enumerate(top_3):
+                recommendations.append({
+                    'priority': i + 1,
+                    'category': 'feature_improvement',
+                    'title': f"{factor['feature']}の改善",
+                    'description': f"重要度{factor['avg_importance']:.3f}の要因を重点的に改善",
+                    'expected_impact': 'high' if i == 0 else 'medium'
+                })
+        
+        # リスク要因に基づく推奨事項
+        risk_factors = insights.get('risk_factors', {})
+        if risk_factors.get('high_risk_factors'):
+            for risk in risk_factors['high_risk_factors'][:2]:
+                recommendations.append({
+                    'priority': len(recommendations) + 1,
+                    'category': 'risk_mitigation',
+                    'title': f"{risk['factor']}のリスク軽減",
+                    'description': risk['description'],
+                    'expected_impact': 'high' if risk['risk_level'] > 0.3 else 'medium'
+                })
+        
+        return recommendations
     
     def _segment_analysis(self, df: pd.DataFrame) -> Dict[str, Any]:
         """セグメント分析"""
-        # 実装省略
-        return {"mock": "segments"}
+        # 簡易セグメント分析
+        segments = {}
+        
+        # 活動レベルによるセグメント
+        activity_cols = ['changes_authored', 'changes_reviewed']
+        if all(col in df.columns for col in activity_cols):
+            df_temp = df.copy()
+            df_temp['total_activity'] = df_temp[activity_cols].sum(axis=1)
+            
+            # 活動レベルでセグメント化
+            low_activity = df_temp[df_temp['total_activity'] <= df_temp['total_activity'].quantile(0.33)]
+            medium_activity = df_temp[(df_temp['total_activity'] > df_temp['total_activity'].quantile(0.33)) & 
+                                    (df_temp['total_activity'] <= df_temp['total_activity'].quantile(0.67))]
+            high_activity = df_temp[df_temp['total_activity'] > df_temp['total_activity'].quantile(0.67)]
+            
+            segments['activity_based'] = {
+                'low_activity': {
+                    'count': len(low_activity),
+                    'retention_rate': low_activity['retention_label'].mean() if len(low_activity) > 0 else 0
+                },
+                'medium_activity': {
+                    'count': len(medium_activity),
+                    'retention_rate': medium_activity['retention_label'].mean() if len(medium_activity) > 0 else 0
+                },
+                'high_activity': {
+                    'count': len(high_activity),
+                    'retention_rate': high_activity['retention_label'].mean() if len(high_activity) > 0 else 0
+                }
+            }
+        
+        return segments
     
     # 可視化メソッド（実装省略）
     def _plot_feature_importance_ranking(self, importance_results: Dict[str, Any]) -> None:
