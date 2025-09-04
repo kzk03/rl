@@ -1,0 +1,476 @@
+[
+  {
+    "developer": {
+      "developer_id": "dev001@example.com",
+      "name": "Alice Developer",
+      "first_seen": "2023-01-15T09:00:00Z",
+      "changes_authored": 45,
+      "changes_reviewed": 67,
+      "total_insertions": 2340,
+      "total_deletions": 1890,
+      "projects": ["project-a", "project-b"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-01-20T10:30:00Z",
+        "type": "commit",
+        "message": "Fix critical bug",
+        "lines_added": 45,
+        "lines_deleted": 12
+      },
+      {
+        "timestamp": "2023-02-05T14:15:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["LGTM", "Good fix"]
+      },
+      {
+        "timestamp": "2023-02-18T11:45:00Z",
+        "type": "commit",
+        "message": "Add test suite",
+        "lines_added": 234,
+        "lines_deleted": 5
+      },
+      {
+        "timestamp": "2023-03-02T16:20:00Z",
+        "type": "merge",
+        "message": "Merge feature branch"
+      },
+      {
+        "timestamp": "2023-03-15T09:10:00Z",
+        "type": "review",
+        "score": 1,
+        "comments": ["Minor issues"]
+      },
+      {
+        "timestamp": "2023-04-01T12:00:00Z",
+        "type": "commit",
+        "message": "Refactor code",
+        "lines_added": 67,
+        "lines_deleted": 23
+      },
+      {
+        "timestamp": "2023-04-20T15:30:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Excellent work"]
+      },
+      {
+        "timestamp": "2023-05-10T11:15:00Z",
+        "type": "commit",
+        "message": "Performance optimization",
+        "lines_added": 89,
+        "lines_deleted": 34
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev002@example.com",
+      "name": "Bob Contributor",
+      "first_seen": "2022-11-10T14:30:00Z",
+      "changes_authored": 123,
+      "changes_reviewed": 89,
+      "total_insertions": 5670,
+      "total_deletions": 3210,
+      "projects": ["project-a", "project-c", "project-d"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-01-05T08:45:00Z",
+        "type": "commit",
+        "message": "Refactor database",
+        "lines_added": 156,
+        "lines_deleted": 89
+      },
+      {
+        "timestamp": "2023-01-12T13:20:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Excellent work"]
+      },
+      {
+        "timestamp": "2023-01-25T10:15:00Z",
+        "type": "issue_creation",
+        "title": "Performance optimization needed"
+      },
+      {
+        "timestamp": "2023-02-08T15:30:00Z",
+        "type": "commit",
+        "message": "Optimize queries",
+        "lines_added": 78,
+        "lines_deleted": 145
+      },
+      {
+        "timestamp": "2023-02-20T11:00:00Z",
+        "type": "documentation",
+        "message": "Update API docs"
+      },
+      {
+        "timestamp": "2023-03-05T14:45:00Z",
+        "type": "review",
+        "score": -1,
+        "comments": ["Needs more testing"]
+      },
+      {
+        "timestamp": "2023-04-15T09:30:00Z",
+        "type": "commit",
+        "message": "Bug fix",
+        "lines_added": 23,
+        "lines_deleted": 12
+      },
+      {
+        "timestamp": "2023-05-01T16:00:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Good improvement"]
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev003@example.com",
+      "name": "Charlie Newbie",
+      "first_seen": "2023-02-28T16:00:00Z",
+      "changes_authored": 8,
+      "changes_reviewed": 12,
+      "total_insertions": 340,
+      "total_deletions": 120,
+      "projects": ["project-b"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-03-01T09:30:00Z",
+        "type": "commit",
+        "message": "Fix typo",
+        "lines_added": 1,
+        "lines_deleted": 1
+      },
+      {
+        "timestamp": "2023-03-03T11:15:00Z",
+        "type": "review",
+        "score": 0,
+        "comments": ["Learning"]
+      },
+      {
+        "timestamp": "2023-03-08T14:20:00Z",
+        "type": "commit",
+        "message": "Add unit test",
+        "lines_added": 45,
+        "lines_deleted": 0
+      },
+      {
+        "timestamp": "2023-03-12T10:45:00Z",
+        "type": "issue_comment",
+        "message": "I can work on this"
+      },
+      {
+        "timestamp": "2023-03-25T13:00:00Z",
+        "type": "commit",
+        "message": "Small improvement",
+        "lines_added": 12,
+        "lines_deleted": 3
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev004@example.com",
+      "name": "Diana Veteran",
+      "first_seen": "2021-06-15T10:00:00Z",
+      "changes_authored": 456,
+      "changes_reviewed": 234,
+      "total_insertions": 12340,
+      "total_deletions": 8760,
+      "projects": [
+        "project-a",
+        "project-b",
+        "project-c",
+        "project-d",
+        "project-e"
+      ],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-01-03T08:00:00Z",
+        "type": "commit",
+        "message": "Major refactoring",
+        "lines_added": 567,
+        "lines_deleted": 234
+      },
+      {
+        "timestamp": "2023-01-10T09:30:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Approved", "Great work"]
+      },
+      {
+        "timestamp": "2023-01-18T13:45:00Z",
+        "type": "merge",
+        "message": "Merge architecture refactoring"
+      },
+      {
+        "timestamp": "2023-01-25T11:20:00Z",
+        "type": "documentation",
+        "message": "Update architecture docs"
+      },
+      {
+        "timestamp": "2023-02-02T15:10:00Z",
+        "type": "mentoring",
+        "message": "Code review session"
+      },
+      {
+        "timestamp": "2023-02-15T10:30:00Z",
+        "type": "commit",
+        "message": "Implement caching",
+        "lines_added": 234,
+        "lines_deleted": 67
+      },
+      {
+        "timestamp": "2023-03-01T14:00:00Z",
+        "type": "review",
+        "score": 1,
+        "comments": ["Good start", "Needs improvements"]
+      },
+      {
+        "timestamp": "2023-03-10T16:45:00Z",
+        "type": "collaboration",
+        "message": "Pair programming session"
+      },
+      {
+        "timestamp": "2023-04-05T12:30:00Z",
+        "type": "commit",
+        "message": "Security enhancement",
+        "lines_added": 123,
+        "lines_deleted": 45
+      },
+      {
+        "timestamp": "2023-04-25T14:15:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Excellent security fix"]
+      },
+      {
+        "timestamp": "2023-05-15T10:00:00Z",
+        "type": "commit",
+        "message": "Performance tuning",
+        "lines_added": 89,
+        "lines_deleted": 56
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev005@example.com",
+      "name": "Eve Occasional",
+      "first_seen": "2022-08-20T12:00:00Z",
+      "changes_authored": 23,
+      "changes_reviewed": 15,
+      "total_insertions": 890,
+      "total_deletions": 456,
+      "projects": ["project-c"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2022-12-15T14:30:00Z",
+        "type": "commit",
+        "message": "Fix minor bug",
+        "lines_added": 12,
+        "lines_deleted": 8
+      },
+      {
+        "timestamp": "2023-01-20T16:45:00Z",
+        "type": "review",
+        "score": 1,
+        "comments": ["Looks good"]
+      },
+      {
+        "timestamp": "2023-02-28T11:30:00Z",
+        "type": "commit",
+        "message": "Update dependencies",
+        "lines_added": 5,
+        "lines_deleted": 5
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev006@example.com",
+      "name": "Frank Regular",
+      "first_seen": "2022-09-01T10:00:00Z",
+      "changes_authored": 78,
+      "changes_reviewed": 45,
+      "total_insertions": 3450,
+      "total_deletions": 2100,
+      "projects": ["project-a", "project-b"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-01-08T09:15:00Z",
+        "type": "commit",
+        "message": "Feature implementation",
+        "lines_added": 234,
+        "lines_deleted": 67
+      },
+      {
+        "timestamp": "2023-01-22T14:30:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Well implemented"]
+      },
+      {
+        "timestamp": "2023-02-10T11:45:00Z",
+        "type": "commit",
+        "message": "Bug fix",
+        "lines_added": 45,
+        "lines_deleted": 23
+      },
+      {
+        "timestamp": "2023-02-25T16:20:00Z",
+        "type": "review",
+        "score": 1,
+        "comments": ["Minor suggestions"]
+      },
+      {
+        "timestamp": "2023-03-12T13:10:00Z",
+        "type": "commit",
+        "message": "Code cleanup",
+        "lines_added": 12,
+        "lines_deleted": 34
+      },
+      {
+        "timestamp": "2023-04-02T10:45:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Clean code"]
+      },
+      {
+        "timestamp": "2023-04-18T15:30:00Z",
+        "type": "commit",
+        "message": "New feature",
+        "lines_added": 156,
+        "lines_deleted": 23
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev007@example.com",
+      "name": "Grace Maintainer",
+      "first_seen": "2021-03-10T08:00:00Z",
+      "changes_authored": 234,
+      "changes_reviewed": 345,
+      "total_insertions": 8900,
+      "total_deletions": 5600,
+      "projects": ["project-a", "project-b", "project-c"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-01-05T08:30:00Z",
+        "type": "commit",
+        "message": "Infrastructure update",
+        "lines_added": 345,
+        "lines_deleted": 123
+      },
+      {
+        "timestamp": "2023-01-15T12:00:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Approved", "Good infrastructure work"]
+      },
+      {
+        "timestamp": "2023-01-28T14:45:00Z",
+        "type": "merge",
+        "message": "Merge infrastructure changes"
+      },
+      {
+        "timestamp": "2023-02-12T10:15:00Z",
+        "type": "commit",
+        "message": "Security patch",
+        "lines_added": 67,
+        "lines_deleted": 34
+      },
+      {
+        "timestamp": "2023-02-26T16:30:00Z",
+        "type": "review",
+        "score": 2,
+        "comments": ["Critical security fix approved"]
+      },
+      {
+        "timestamp": "2023-03-08T11:20:00Z",
+        "type": "documentation",
+        "message": "Update security guidelines"
+      },
+      {
+        "timestamp": "2023-03-22T13:45:00Z",
+        "type": "commit",
+        "message": "Performance monitoring",
+        "lines_added": 189,
+        "lines_deleted": 45
+      },
+      {
+        "timestamp": "2023-04-10T09:30:00Z",
+        "type": "review",
+        "score": 1,
+        "comments": ["Good monitoring addition"]
+      },
+      {
+        "timestamp": "2023-04-28T15:15:00Z",
+        "type": "commit",
+        "message": "System optimization",
+        "lines_added": 123,
+        "lines_deleted": 78
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  },
+  {
+    "developer": {
+      "developer_id": "dev008@example.com",
+      "name": "Henry Inactive",
+      "first_seen": "2022-12-01T14:00:00Z",
+      "changes_authored": 12,
+      "changes_reviewed": 8,
+      "total_insertions": 456,
+      "total_deletions": 234,
+      "projects": ["project-b"],
+      "sources": ["gerrit"]
+    },
+    "activity_history": [
+      {
+        "timestamp": "2023-01-15T10:30:00Z",
+        "type": "commit",
+        "message": "Initial contribution",
+        "lines_added": 23,
+        "lines_deleted": 5
+      },
+      {
+        "timestamp": "2023-02-01T14:15:00Z",
+        "type": "review",
+        "score": 0,
+        "comments": ["Learning the codebase"]
+      },
+      {
+        "timestamp": "2023-02-20T11:45:00Z",
+        "type": "commit",
+        "message": "Small fix",
+        "lines_added": 8,
+        "lines_deleted": 3
+      }
+    ],
+    "base_date": "2023-03-20T00:00:00Z"
+  }
+]

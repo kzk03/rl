@@ -1,0 +1,442 @@
+# 包括的継続予測システム設定ファイル
+# 動的閾値、段階的予測、リアルタイムスコアリングの統合設定
+
+# 全体設定
+system:
+  name: "包括的継続予測システム"
+  version: "1.0.0"
+  description: "動的閾値、段階的予測、リアルタイムスコアリングを統合した継続予測システム"
+
+# データ設定
+data:
+  # 時系列分割
+  temporal_split:
+    train_start_date: "2022-01-01"
+    train_end_date: "2023-06-30"
+    validation_start_date: "2023-07-01"
+    validation_end_date: "2023-09-30"
+    test_start_date: "2023-10-01"
+    test_end_date: "2024-03-31"
+
+  # データ品質
+  quality_filters:
+    min_activity_count: 5
+    min_history_days: 30
+    exclude_bots: true
+    exclude_inactive_projects: true
+
+# 動的閾値システム設定
+dynamic_threshold:
+  # 基本パラメータ
+  min_threshold_days: 7 # 最小1週間
+  max_threshold_days: 730 # 最大2年
+  default_threshold_days: 90 # デフォルト3ヶ月
+
+  # 活動パターン分析
+  min_history_days: 30
+  activity_gap_multiplier: 1.5
+  seasonal_adjustment: true
+
+  # 開発者タイプ別調整
+  developer_type_adjustments:
+    newcomer: 0.6 # 新人は短めの閾値（60%）
+    regular: 1.0 # 通常開発者（100%）
+    veteran: 1.3 # ベテラン（130%）
+    maintainer: 1.6 # メンテナー（160%）
+    occasional: 2.2 # 時々参加（220%）
+    inactive: 0.8 # 非活発（80%）
+
+  # 季節調整係数
+  seasonal_multipliers:
+    january: 1.4 # 年始休暇考慮
+    february: 1.1
+    march: 0.9 # 活発期間
+    april: 0.9
+    may: 0.9
+    june: 1.0
+    july: 1.3 # 夏休み考慮
+    august: 1.4
+    september: 0.9 # 活発期間
+    october: 0.9
+    november: 0.9
+    december: 1.5 # 年末休暇考慮
+
+  # 信頼度計算
+  confidence_calculation:
+    min_samples_for_high_confidence: 50
+    stability_weight: 0.5
+    history_weight: 0.5
+
+# 段階的予測システム設定
+staged_prediction:
+  # 予測段階定義
+  prediction_stages:
+    immediate: 7 # 1週間後
+    short_term: 30 # 1ヶ月後
+    medium_term: 90 # 3ヶ月後
+    long_term: 180 # 6ヶ月後
+    extended: 365 # 1年後
+
+  # 段階別重み（スコア計算用）
+  stage_weights:
+    immediate: 0.4 # 短期予測を最重視
+    short_term: 0.3
+    medium_term: 0.2
+    long_term: 0.1
+    extended: 0.0 # 参考程度
+
+  # 特徴量設定
+  features:
+    # 基本開発者特徴量
+    basic_developer_features:
+      - "changes_authored"
+      - "changes_reviewed"
+      - "total_insertions"
+      - "total_deletions"
+      - "project_count"
+      - "experience_days"
+
+    # 活動パターン特徴量
+    activity_pattern_features:
+      - "recent_activities_30d"
+      - "activity_gap_std"
+      - "activity_gap_mean"
+      - "max_activity_gap"
+      - "days_since_last_activity"
+      - "activity_type_diversity"
+      - "weekend_activity_ratio"
+      - "night_activity_ratio"
+
+    # 時系列特徴量
+    time_series_features:
+      enabled: true
+      windows: [7, 14, 30, 60] # 分析窓（日数）
+      seasonal_features: true
+      trend_features: true
+
+  # モデル設定
+  model_config:
+    n_estimators: 150
+    max_depth: 12
+    min_samples_split: 5
+    min_samples_leaf: 2
+    random_state: 42
+    n_jobs: -1
+
+  # 訓練設定
+  training:
+    cross_validation:
+      method: "time_series_split"
+      n_splits: 5
+
+    early_stopping:
+      enabled: true
+      patience: 10
+      min_improvement: 0.001
+
+    feature_selection:
+      enabled: true
+      method: "recursive_feature_elimination"
+      n_features: 50
+
+# リアルタイムスコアリング設定
+realtime_scoring:
+  # 更新頻度
+  score_update_frequency: "daily" # immediate, hourly, daily
+  activity_window_days: 30
+  score_decay_rate: 0.95 # 日次減衰率
+
+  # アラート閾値
+  alert_thresholds:
+    critical: 0.25 # 25%以下で危険
+    high_risk: 0.4 # 40%以下で高リスク
+    warning: 0.55 # 55%以下で警告
+    improvement: 0.8 # 80%以上で改善通知
+    excellent: 0.95 # 95%以上で優秀
+
+  # 活動ブースト設定
+  activity_boosts:
+    # コード関連
+    commit: 0.06
+    push: 0.04
+    merge: 0.10
+    revert: 0.02
+
+    # レビュー関連
+    review_approval: 0.08
+    review_comment: 0.03
+    review_request: 0.02
+
+    # Issue関連
+    issue_creation: 0.03
+    issue_comment: 0.02
+    issue_resolution: 0.05
+    issue_assignment: 0.02
+
+    # ドキュメント関連
+    documentation_update: 0.04
+    readme_update: 0.03
+    wiki_edit: 0.02
+
+    # 協力関連
+    collaboration: 0.03
+    mentoring: 0.05
+    code_sharing: 0.04
+
+    # テスト関連
+    test_creation: 0.05
+    test_update: 0.03
+    ci_fix: 0.04
+
+  # 活動品質評価
+  quality_evaluation:
+    # コミットメッセージ品質
+    commit_message:
+      min_length_bonus: 50 # 50文字以上でボーナス
+      keyword_bonuses:
+        fix: 1.1
+        bug: 1.1
+        feature: 1.2
+        test: 1.15
+        doc: 1.1
+        refactor: 1.1
+
+    # レビュー品質
+    review_quality:
+      detailed_review_threshold: 3 # 3コメント以上で詳細レビュー
+      constructive_feedback_bonus: 1.3
+      approval_bonus: 1.2
+
+    # 時間帯調整
+    time_adjustments:
+      business_hours_bonus: 1.0
+      after_hours_penalty: 0.95
+      weekend_penalty: 0.9
+      holiday_penalty: 0.85
+
+  # スコア履歴管理
+  history_management:
+    max_history_entries: 200
+    cleanup_interval_days: 90
+    backup_interval_days: 30
+
+  # アラート管理
+  alert_management:
+    max_alerts_per_developer: 50
+    alert_cooldown_hours: 24
+    escalation_thresholds:
+      immediate: 0.2 # 20%以下で即座にエスカレーション
+      urgent: 0.3 # 30%以下で緊急
+      normal: 0.5 # 50%以下で通常
+
+# 評価・検証設定
+evaluation:
+  # 評価期間
+  evaluation_periods: [7, 14, 30, 60, 90, 180, 365]
+
+  # ベースライン設定
+  baseline:
+    fixed_threshold_days: 90
+    min_activity_threshold: 5
+
+  # 評価メトリクス
+  metrics:
+    primary:
+      - "f1_score"
+      - "auc_roc"
+      - "precision"
+      - "recall"
+
+    secondary:
+      - "accuracy"
+      - "specificity"
+      - "balanced_accuracy"
+      - "matthews_corrcoef"
+
+  # 統計的検定
+  statistical_tests:
+    significance_level: 0.05
+    multiple_comparison_correction: "bonferroni"
+    bootstrap_samples: 1000
+
+  # 可視化設定
+  visualization:
+    figure_size: [12, 8]
+    dpi: 300
+    style: "seaborn"
+    color_palette: "husl"
+
+    plots:
+      - "system_comparison"
+      - "improvement_metrics"
+      - "period_performance"
+      - "threshold_distribution"
+      - "score_trajectories"
+      - "alert_frequency"
+
+# ログ・監視設定
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  handlers:
+    console:
+      enabled: true
+      level: "INFO"
+
+    file:
+      enabled: true
+      level: "DEBUG"
+      filename: "logs/comprehensive_retention.log"
+      max_bytes: 10485760 # 10MB
+      backup_count: 5
+
+    database:
+      enabled: false
+      table: "retention_logs"
+
+# パフォーマンス設定
+performance:
+  # 並列処理
+  parallel_processing:
+    enabled: true
+    max_workers: 4
+    chunk_size: 100
+
+  # キャッシュ
+  caching:
+    enabled: true
+    cache_size: 1000
+    ttl_seconds: 3600
+
+  # メモリ管理
+  memory_management:
+    max_memory_usage_gb: 8
+    garbage_collection_threshold: 0.8
+    batch_processing_size: 500
+
+# セキュリティ設定
+security:
+  # データ匿名化
+  anonymization:
+    enabled: true
+    hash_developer_ids: true
+    remove_personal_info: true
+
+  # アクセス制御
+  access_control:
+    require_authentication: false
+    allowed_roles: ["admin", "analyst", "developer"]
+
+  # 監査ログ
+  audit_logging:
+    enabled: true
+    log_predictions: true
+    log_score_updates: true
+    log_threshold_calculations: true
+
+# 実験・A/Bテスト設定
+experimentation:
+  # A/Bテスト
+  ab_testing:
+    enabled: false
+    test_groups:
+      control: 0.5 # 50%はベースライン
+      treatment: 0.5 # 50%は新システム
+
+    duration_days: 30
+    minimum_sample_size: 100
+
+  # 段階的ロールアウト
+  gradual_rollout:
+    enabled: true
+    phases:
+      - name: "pilot"
+        percentage: 10
+        duration_days: 14
+      - name: "beta"
+        percentage: 30
+        duration_days: 30
+      - name: "full"
+        percentage: 100
+        duration_days: -1 # 無制限
+
+# 外部システム連携
+integrations:
+  # Gerrit連携
+  gerrit:
+    enabled: true
+    api_endpoint: "${GERRIT_API_ENDPOINT}"
+    authentication:
+      method: "token"
+      token: "${GERRIT_API_TOKEN}"
+
+    polling_interval_minutes: 60
+    batch_size: 100
+
+  # 通知システム
+  notifications:
+    email:
+      enabled: false
+      smtp_server: "${SMTP_SERVER}"
+      smtp_port: 587
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+
+    slack:
+      enabled: false
+      webhook_url: "${SLACK_WEBHOOK_URL}"
+      channel: "#retention-alerts"
+
+    webhook:
+      enabled: false
+      url: "${WEBHOOK_URL}"
+      timeout_seconds: 30
+
+  # データベース
+  database:
+    enabled: false
+    type: "postgresql"
+    host: "${DB_HOST}"
+    port: 5432
+    database: "${DB_NAME}"
+    username: "${DB_USERNAME}"
+    password: "${DB_PASSWORD}"
+
+# 環境別設定
+environments:
+  development:
+    logging:
+      level: "DEBUG"
+
+    performance:
+      parallel_processing:
+        max_workers: 2
+
+    evaluation:
+      evaluation_periods: [30, 90]
+
+  testing:
+    data:
+      quality_filters:
+        min_activity_count: 1
+        min_history_days: 7
+
+    realtime_scoring:
+      score_update_frequency: "immediate"
+
+  production:
+    logging:
+      level: "WARNING"
+
+    security:
+      anonymization:
+        enabled: true
+      access_control:
+        require_authentication: true
+
+    performance:
+      parallel_processing:
+        max_workers: 8
+      memory_management:
+        max_memory_usage_gb: 16
