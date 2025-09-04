@@ -7,6 +7,7 @@
 
 import json
 import logging
+import math
 import re
 import warnings
 from collections import Counter, defaultdict
@@ -31,6 +32,21 @@ class WorkloadExpertiseAnalyzer:
         self.developer_expertise_profiles = {}
         self.workload_metrics = {}
         self.expertise_similarity_cache = {}
+        # 可変パラメータ（閾値）: デフォルトは従来ロジック互換
+        wt = config.get('workload_thresholds', {})
+        self.thresholds = {
+            'overload': wt.get('overload', 5.0),
+            'high': wt.get('high', 2.0),
+            'medium': wt.get('medium', 0.5),
+            'low': wt.get('low', 0.1),
+        }
+        # リスク重み (バーンアウト計算で使用) を外部設定可能に
+        sw = config.get('stress_weights', {})
+        self.stress_weights = {
+            'workload': sw.get('workload', 0.4),
+            'review': sw.get('review', 0.3),
+            'fragmentation': sw.get('fragmentation', 0.3)
+        }
         
     def _setup_logger(self) -> logging.Logger:
         """ロガーの設定"""
@@ -97,17 +113,20 @@ class WorkloadExpertiseAnalyzer:
         
         # 作業負荷レベルの分類
         total_workload = features['daily_changes_load'] + features['daily_code_load'] / 1000
-        
-        if total_workload > 5.0:
+        ov = self.thresholds['overload']
+        hi = self.thresholds['high']
+        md = self.thresholds['medium']
+        lo = self.thresholds['low']
+        if total_workload > ov:
             features['workload_level'] = 4.0  # 過負荷
             features['workload_stress'] = 1.0
-        elif total_workload > 2.0:
+        elif total_workload > hi:
             features['workload_level'] = 3.0  # 高負荷
             features['workload_stress'] = 0.7
-        elif total_workload > 0.5:
+        elif total_workload > md:
             features['workload_level'] = 2.0  # 中負荷
             features['workload_stress'] = 0.3
-        elif total_workload > 0.1:
+        elif total_workload > lo:
             features['workload_level'] = 1.0  # 低負荷
             features['workload_stress'] = 0.1
         else:
@@ -140,6 +159,22 @@ class WorkloadExpertiseAnalyzer:
             features['project_fragmentation'] = 0.0
             features['fragmentation_stress'] = 0.0
         
+        # 拡張指標: 直近期間比較（activity_history があれば）
+        history = developer_data.get('activity_history', [])
+        if history:
+            try:
+                # 直近7日と30日で commit+review 回数比較
+                now = datetime.utcnow()
+                seven = now - timedelta(days=7)
+                thirty = now - timedelta(days=30)
+                act7 = sum(1 for a in history if a.get('timestamp') and datetime.fromisoformat(a['timestamp'].replace('Z','+00:00')) >= seven)
+                act30 = sum(1 for a in history if a.get('timestamp') and datetime.fromisoformat(a['timestamp'].replace('Z','+00:00')) >= thirty)
+                features['recent_activity_ratio_7_30'] = (act7 / act30) if act30 > 0 else 0.0
+            except Exception:
+                features['recent_activity_ratio_7_30'] = 0.0
+        else:
+            features['recent_activity_ratio_7_30'] = 0.0
+
         return features
     
     def analyze_expertise_match(self, developer_data: Dict[str, Any]) -> Dict[str, float]:
@@ -232,6 +267,29 @@ class WorkloadExpertiseAnalyzer:
         else:
             features['cross_domain_penalty'] = 0.0
         
+        # 追加特徴量: ドメインエントロピー (分散度) と専門性幅
+        if domain_keywords:
+            domain_counts = Counter(domain_keywords)
+            total = sum(domain_counts.values())
+            if total > 0:
+                entropy = -sum((c/total) * math.log(c/total + 1e-12) for c in domain_counts.values())
+                max_entropy = math.log(len(domain_counts)) if len(domain_counts) > 1 else 1.0
+                features['domain_entropy'] = entropy / max_entropy if max_entropy > 0 else 0.0
+            else:
+                features['domain_entropy'] = 0.0
+            features['domain_breadth'] = len(domain_counts) / 10.0  # 正規化 (最大10想定)
+        else:
+            features['domain_entropy'] = 0.0
+            features['domain_breadth'] = 0.0
+
+        # 専門性安定性: review_volatility (後で workload で計算) を利用できれば逆数的指標
+        review_scores = developer_data.get('review_scores', [])
+        if review_scores and len(review_scores) > 1:
+            volatility = np.std(review_scores)
+            features['expertise_stability'] = 1.0 / (1.0 + volatility)
+        else:
+            features['expertise_stability'] = 0.5  # 情報不足
+
         return features
     
     def _extract_domain_keywords(self, projects: List[str]) -> List[str]:
@@ -326,8 +384,11 @@ class WorkloadExpertiseAnalyzer:
         review_stress = workload_features.get('review_stress', 0.0)
         fragmentation_stress = workload_features.get('fragmentation_stress', 0.0)
         
-        workload_risk = (workload_stress * 0.4 + review_stress * 0.3 + 
-                        fragmentation_stress * 0.3)
+        workload_risk = (
+            workload_stress * self.stress_weights['workload'] +
+            review_stress * self.stress_weights['review'] +
+            fragmentation_stress * self.stress_weights['fragmentation']
+        )
         risk_factors['workload_burnout_risk'] = workload_risk
         
         # 2. 専門性ミスマッチリスク
