@@ -180,6 +180,7 @@ class InvitationRankingBuildConfig:
     leakage_free: bool = True   # if True, do NOT use final total positives (leakage)
     idf_mode: str = 'global'    # 'global' or 'recent'
     idf_recent_days: int = 90   # when idf_mode='recent', window size in days
+    idf_windows: Tuple[int, ...] = ()  # optional multiple recent IDF windows, e.g., (30, 90)
 
 
 def build_invitation_ranking_samples(
@@ -308,6 +309,9 @@ def build_invitation_ranking_samples(
     # If using recent IDF, maintain a sliding window of prior changes' tokens
     window = deque()  # elements: (created_ts, tokens_set)
     df_window: Dict[str, int] = defaultdict(int)
+    # Multi-window structures (not used when only one TF-IDF is needed)
+    windows_map: Dict[int, deque] = {}
+    df_windows_map: Dict[int, Dict[str, int]] = {}
 
     for ch in ordered_changes:
         positives = [rid for rid in ch['positives'] if rid in eligible_reviewers]
@@ -319,7 +323,7 @@ def build_invitation_ranking_samples(
         change_files = set(ch.get('file_paths') or [])
         change_tokens = _path_tokens(list(change_files))
 
-        # Select IDF to use for this change
+    # Select IDF to use for this change
         if cfg.idf_mode == 'recent':
             # shrink window to [created - idf_recent_days, created)
             horizon = timedelta(days=cfg.idf_recent_days)
@@ -338,6 +342,8 @@ def build_invitation_ranking_samples(
                 idf_current = idf_global
         else:
             idf_current = idf_global
+
+    # Per-window IDFs are disabled (only one TF-IDF feature is kept)
 
         # Global recent_30d counts for fairness/stress metrics
         # (naive computation; acceptable for baseline size)
@@ -390,10 +396,8 @@ def build_invitation_ranking_samples(
             file_events = [s for (ts, s) in reviewer_file_hist.get(rid, []) if ts < created and (created - ts).days <= 30]
             past_files_30d: set[str] = set().union(*file_events) if file_events else set()
             if change_files and past_files_30d:
-                file_jaccard = _file_path_similarity_fuzzy(list(change_files), list(past_files_30d))
                 file_tfidf = _tfidf_cosine(change_tokens, _path_tokens(list(past_files_30d)), idf_current)
             else:
-                file_jaccard = 0.0
                 file_tfidf = 0.0
             # Removed placeholder similarity features (will add real ones later)
             state = {
@@ -414,7 +418,6 @@ def build_invitation_ranking_samples(
                 'macro_bus_factor_top5_share': bus_factor_top5_share,
                 'match_off_specialty_flag': match_off_specialty_flag,
                 'off_specialty_recent_ratio': off_specialty_recent_ratio,
-                'reviewer_file_jaccard_30d': file_jaccard,
                 'reviewer_file_tfidf_cosine_30d': file_tfidf,
             }
             pos_states.append(state)
@@ -471,10 +474,8 @@ def build_invitation_ranking_samples(
             file_events = [s for (ts, s) in reviewer_file_hist.get(rid, []) if ts < created and (created - ts).days <= 30]
             past_files_30d = set().union(*file_events) if file_events else set()
             if change_files and past_files_30d:
-                file_jaccard = _file_path_similarity_fuzzy(list(change_files), list(past_files_30d))
                 file_tfidf = _tfidf_cosine(change_tokens, _path_tokens(list(past_files_30d)), idf_current)
             else:
-                file_jaccard = 0.0
                 file_tfidf = 0.0
             neg_states.append({
                 'reviewer_id': rid,
@@ -494,7 +495,6 @@ def build_invitation_ranking_samples(
                 'macro_bus_factor_top5_share': bus_factor_top5_share,
                 'match_off_specialty_flag': match_off_specialty_flag,
                 'off_specialty_recent_ratio': off_specialty_recent_ratio,
-                'reviewer_file_jaccard_30d': file_jaccard,
                 'reviewer_file_tfidf_cosine_30d': file_tfidf,
             })
         # Append labeled samples
@@ -509,6 +509,7 @@ def build_invitation_ranking_samples(
             window.append((created, toks_cur))
             for t in toks_cur:
                 df_window[t] += 1
+    # Multi-window updates are disabled
 
     # No mutation required: pending counts derived from full historical index up to current time
     return samples
@@ -544,7 +545,6 @@ class InvitationRankingModel:
             'macro_bus_factor_top5_share',
             'match_off_specialty_flag',
             'off_specialty_recent_ratio',
-            'reviewer_file_jaccard_30d',
             'reviewer_file_tfidf_cosine_30d',
         ]
 

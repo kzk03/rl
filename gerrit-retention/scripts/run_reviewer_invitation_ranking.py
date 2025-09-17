@@ -34,6 +34,7 @@ def parse_args():
     ap.add_argument('--hard-fraction', type=float, default=0.5)
     ap.add_argument('--idf-mode', choices=['global', 'recent'], default='global', help='IDF window: global over all changes or recent sliding window')
     ap.add_argument('--idf-recent-days', type=int, default=90, help='Window size (days) when --idf-mode=recent')
+    ap.add_argument('--idf-windows', type=int, nargs='*', default=[], help='(Deprecated) Additional recent IDF windows; ignored when using single TF-IDF feature')
     ap.add_argument('--output', default='outputs/reviewer_invitation_ranking')
     return ap.parse_args()
 
@@ -53,6 +54,7 @@ def main():
         hard_fraction=args.hard_fraction,
     idf_mode=args.idf_mode,
     idf_recent_days=args.idf_recent_days,
+    idf_windows=tuple(args.idf_windows or ()),
     )
     print(f'📥 building ranking samples from {changes_path}')
     samples = build_invitation_ranking_samples(changes_path, cfg)
@@ -121,7 +123,6 @@ def main():
                     'reviewer_active_flag_30d': '過去30日活動フラグ',
                     'reviewer_proj_prev_reviews_30d': '過去30日同一プロジェクト参加数',
                     'macro_bus_factor_top5_share': '上位5人30日シェア',
-                    'reviewer_file_jaccard_30d': '過去30日ファイルパス類似度(Jaccard)',
                     'reviewer_file_tfidf_cosine_30d': '過去30日ファイルトークンTF-IDFコサイン',
                     'reviewer_pending_reviews': '未クローズレビュー数',
                     'reviewer_workload_deviation_z': '活動量Zスコア',
