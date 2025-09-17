@@ -410,13 +410,11 @@ def build_invitation_ranking_samples(
                 'reviewer_proj_prev_reviews_30d': proj_prev_30,
                 'reviewer_proj_share_30d': proj_share,
                 'change_current_invited_cnt': len(ch['invited']),
-                'change_prev_positive_cnt': observed_pos_cnt,
                 'reviewer_active_flag_30d': active_flag,
                 'reviewer_pending_reviews': pending_cnt,
                 'reviewer_night_activity_share_30d': night_activity_share,
                 'reviewer_overload_flag': overload_flag,
                 'reviewer_workload_deviation_z': workload_deviation_z,
-                'macro_bus_factor_top5_share': bus_factor_top5_share,
                 'match_off_specialty_flag': match_off_specialty_flag,
                 'off_specialty_recent_ratio': off_specialty_recent_ratio,
                 'reviewer_file_tfidf_cosine_30d': file_tfidf,
@@ -487,13 +485,11 @@ def build_invitation_ranking_samples(
                 'reviewer_proj_prev_reviews_30d': proj_prev_30,
                 'reviewer_proj_share_30d': proj_share,
                 'change_current_invited_cnt': len(ch['invited']),
-                'change_prev_positive_cnt': observed_pos_cnt,
                 'reviewer_active_flag_30d': active_flag,
                 'reviewer_pending_reviews': pending_cnt,
                 'reviewer_night_activity_share_30d': night_activity_share,
                 'reviewer_overload_flag': overload_flag,
                 'reviewer_workload_deviation_z': workload_deviation_z,
-                'macro_bus_factor_top5_share': bus_factor_top5_share,
                 'match_off_specialty_flag': match_off_specialty_flag,
                 'off_specialty_recent_ratio': off_specialty_recent_ratio,
                 'reviewer_file_tfidf_cosine_30d': file_tfidf,
@@ -537,14 +533,12 @@ class InvitationRankingModel:
             'reviewer_proj_prev_reviews_30d',
             'reviewer_proj_share_30d',
             'change_current_invited_cnt',
-            'change_prev_positive_cnt',
             'reviewer_active_flag_30d',
             # Refined leakage-free feature set
             'reviewer_pending_reviews',
             'reviewer_night_activity_share_30d',
             'reviewer_overload_flag',
             'reviewer_workload_deviation_z',
-            'macro_bus_factor_top5_share',
             'match_off_specialty_flag',
             'off_specialty_recent_ratio',
             'reviewer_file_tfidf_cosine_30d',
@@ -905,6 +899,15 @@ def build_invitation_groups_irl(
     # Eligible pool by total reviews (using participation history as proxy)
     eligible_reviewers = {rid for rid, h in reviewer_hist.items() if len(h) >= base_cfg.min_total_reviews}
 
+    # Build participation event index for leakage-free pending calculation (per reviewer)
+    # Interval = (change_created_ts, change_submitted_ts). Sorted by start ts.
+    reviewer_participations: Dict[int, List[Tuple[Any, Any]]] = defaultdict(list)
+    for ch in raw_changes:
+        for rid in ch['positives']:
+            reviewer_participations[rid].append((ch['created'], ch['submitted']))
+    for rid in reviewer_participations:
+        reviewer_participations[rid].sort(key=lambda x: x[0])
+
     from statistics import mean, pstdev
     ordered_changes = sorted(raw_changes, key=lambda c: c['created'])
     groups = []
@@ -914,6 +917,17 @@ def build_invitation_groups_irl(
         proj = ch['project']
         change_files = set(ch.get('file_paths') or [])
         change_tokens = _path_tokens(list(change_files))
+
+        # Helper: count open (pending) participations strictly started before 'created' and not yet submitted
+        def pending_count(rid: int) -> int:
+            cnt = 0
+            for (c_ts, s_ts) in reviewer_participations.get(rid, []):
+                if c_ts >= created:
+                    break  # intervals are sorted by start
+                if s_ts and s_ts <= created:
+                    continue  # already closed
+                cnt += 1
+            return cnt
 
         # active pool
         horizon = timedelta(days=base_cfg.recent_days)
@@ -978,6 +992,7 @@ def build_invitation_groups_irl(
             proj_prev_30 = sum(1 for (ts, p) in past if p == proj and (created - ts).days <= 30)
             proj_share = proj_prev_30 / recent_30 if recent_30 > 0 else 0.0
             active_flag = 1 if recent_30 > 0 else 0
+            pending_cnt = pending_count(rid)
             night_events = sum(1 for (ts, _) in past if (created - ts).days <= 30 and ts.hour in (22,23,0,1,2,3,4,5))
             night_activity_share = night_events / recent_30 if recent_30 > 0 else 0.0
             overload_flag = 1 if (recent_30 >= (gmean + gstd)) and recent_30 > 0 else 0
@@ -1000,13 +1015,11 @@ def build_invitation_groups_irl(
                 'reviewer_proj_prev_reviews_30d': proj_prev_30,
                 'reviewer_proj_share_30d': proj_share,
                 'change_current_invited_cnt': len(invited),
-                'change_prev_positive_cnt': 0,  # not used in IRL loss
                 'reviewer_active_flag_30d': active_flag,
-                'reviewer_pending_reviews': 0,  # optional: can be added similar to pointwise
+                'reviewer_pending_reviews': pending_cnt,
                 'reviewer_night_activity_share_30d': night_activity_share,
                 'reviewer_overload_flag': overload_flag,
                 'reviewer_workload_deviation_z': workload_deviation_z,
-                'macro_bus_factor_top5_share': bus_factor_top5_share,
                 'match_off_specialty_flag': match_off_specialty_flag,
                 'off_specialty_recent_ratio': off_specialty_recent_ratio,
                 'reviewer_file_tfidf_cosine_30d': file_tfidf,
