@@ -77,6 +77,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="Future-window retention evaluation (time-series)")
     p.add_argument('--developers', default='data/processed/unified/all_developers.json')
     p.add_argument('--changes', default='data/processed/unified/all_reviews.json')
+    p.add_argument('--project', default=None, help='If set, filter changes to this project only')
     p.add_argument('--horizon-days', type=int, default=90, help='Future window Δ (days)')
     p.add_argument('--max-snapshots-per-dev', type=int, default=5)
     p.add_argument('--min-activities', type=int, default=3, help='Minimum activity count for a developer to be considered')
@@ -281,11 +282,20 @@ def main():  # noqa: C901 (複雑度許容)
 
     print(f"📥 Loading changes (may take time): {ch_path}")
     try:
-        changes = load_json(ch_path)
+        changes_all = load_json(ch_path)
     except MemoryError:
         print("⚠️ MemoryError: file too large. Consider preprocessing to a smaller subset.")
         return 1
-    print(f"✅ Changes loaded: {len(changes)}")
+    # Optional project filter
+    if args.project:
+        changes = [c for c in changes_all if c.get('project') == args.project]
+        print(f"✅ Changes loaded: {len(changes_all)} (filtered by project='{args.project}' -> {len(changes)})")
+        if not changes:
+            print("❌ No changes after project filter; aborting")
+            return 1
+    else:
+        changes = changes_all
+        print(f"✅ Changes loaded: {len(changes)}")
 
     activity_map = build_activity_map(changes, max_developers=args.max_developers)
     print(f"🧪 Activity map built: developers with activity={len(activity_map)}")

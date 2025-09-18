@@ -68,7 +68,7 @@ class TrainingPipeline:
             },
             {
                 'name': 'rl_agent',
-                'script': 'training/rl_training/train_ppo_agent.py',
+                'script': 'training/rl_training/train_ppo_production.py',
                 'config_key': 'rl_environment',
                 'required_data': ['all_reviews.json', 'all_developers.json'],
                 'output_model': 'ppo_agent.zip'

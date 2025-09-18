@@ -48,7 +48,7 @@ uv run python scripts/run_full_pipeline.py
 # 個別コンポーネントの実行
 uv run python training/retention_training/train_retention_model.py
 uv run python training/stress_training/train_stress_model.py
-uv run python training/rl_training/train_ppo_agent.py
+uv run python training/rl_training/train_ppo_production.py
 ```
 
 ## プロジェクト構造

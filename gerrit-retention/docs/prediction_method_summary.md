@@ -24,7 +24,7 @@
 
 → 45〜60 日がバランス良。60 日採用で pos 約 0.54。
 
-### 4. Future Window スナップショット生成ロジック (脚本: `evaluate_future_window_retention.py` / プロジェクト版: `run_future_window_project_eval.py`)
+### 4. Future Window スナップショット生成ロジック (脚本: `evaluate_future_window_retention.py`)
 
 1. 開発者ごとに活動タイムスタンプを昇順取得。
 2. 末尾を除く系列から最大 N 個 (均等サンプリング) のスナップショットを選択。
@@ -32,10 +32,13 @@
 4. 特徴は _累積集計_ を activity 割合(fraction) で線形スケールする近似 (完全な過去再計算は未実装)。
 5. 時系列 (日時昇順) 80/20 or 指定比率で前方=Train / 後方=Test 分割。
 
+プロジェクト単位で評価したい場合は、`evaluate_future_window_retention.py` に `--project <name>` を渡して changes をフィルタしてください。
+例: uv run python scripts/evaluate_future_window_retention.py --developers data/processed/unified/all_developers.json --changes data/processed/unified/all_reviews.json --project openstack/nova --horizon-days 90 --max-snapshots-per-dev 4 --test-ratio 0.3
+
 ### 5. ネガティブ不足問題 & 拡張
 
 初期 30 日モデルでは test pos_rate=0.95 (負例=1) → 汎化指標不安定。
-対策 (オプション): `run_future_window_project_eval.py` に以下追加。
+対策 (オプション): プロジェクト指定の上で以下のネガティブ拡張を有効化。
 
 - `--add-gap-negatives`: 連続活動間ギャップが horizon を超える区間に中点付近 negative を挿入 (1 開発者あたり最大 K)。
 - `--add-tail-negative`: 終端 (dataset_end まで) に horizon 以上のギャップがある場合 tail 内部に negative。
