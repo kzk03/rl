@@ -18,6 +18,7 @@ from gerrit_retention.recommendation.reviewer_acceptance_after_invite import (
     AcceptanceBuildConfig,
     evaluate_acceptance_after_invite,
 )
+from gerrit_retention.utils.labels import jp_label
 
 
 def parse_args():
@@ -82,32 +83,14 @@ def main():
             (out_dir / 'weights.json').write_text(json.dumps(weight_payload, indent=2, ensure_ascii=False), encoding='utf-8')
             # CSV
             try:
-                jp_labels = {
-                    'reviewer_total_reviews': '累積レビュー参加数',
-                    'reviewer_recent_reviews_30d': '過去30日レビュー参加数',
-                    'reviewer_gap_days': '最終参加からの経過日数',
-                    'match_off_specialty_flag': '専門外フラグ(過去30日同一プロジェクト経験無)',
-                    'off_specialty_recent_ratio': '専門外比率(=1-同一プロジェクト比率)',
-                    'reviewer_recent_reviews_7d': '過去7日レビュー参加数',
-                    'reviewer_proj_share_30d': '過去30日同一プロジェクト比率',
-                    'reviewer_active_flag_30d': '過去30日活動フラグ',
-                    'reviewer_proj_prev_reviews_30d': '過去30日同一プロジェクト参加数',
-                    'reviewer_file_tfidf_cosine_30d': '過去30日ファイルトークンTF-IDFコサイン',
-                    'reviewer_pending_reviews': '未クローズレビュー数',
-                    'reviewer_workload_deviation_z': '活動量Zスコア',
-                    'change_current_invited_cnt': '変更での招待人数',
-                    'reviewer_night_activity_share_30d': '過去30日夜間活動比率',
-                    'reviewer_overload_flag': '過負荷フラグ(平均+σ以上)',
-                    '_intercept': 'ベースライン切片',
-                }
                 csv_lines = []
                 header = ['feature', 'japanese_name', 'coef_std', 'abs', 'odds_ratio_plus1SD', 'rel_importance']
                 csv_lines.append(','.join(header))
                 for f, c, or_, ri in zip(features, coef, odds_ratio, rel_importance):
-                    jp = jp_labels.get(f, f)
+                    jp = jp_label(f)
                     row = [f, jp, f"{c}", f"{abs(c)}", f"{or_}", f"{ri}"]
                     csv_lines.append(','.join(str(x) for x in row))
-                inter_row = ['_intercept', jp_labels.get('_intercept', '_intercept'), f"{intercept}", f"{abs(intercept)}", 'NA', 'NA']
+                inter_row = ['_intercept', jp_label('_intercept'), f"{intercept}", f"{abs(intercept)}", 'NA', 'NA']
                 csv_lines.append(','.join(str(x) for x in inter_row))
                 (out_dir / 'weights_summary.csv').write_text('\n'.join(csv_lines), encoding='utf-8')
             except Exception as e:
