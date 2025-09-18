@@ -58,3 +58,12 @@ uv run python training/rl_training/train_ppo_agent.py
 ## ライセンス
 
 MIT License
+
+## 最新出力参照先（Last Artifacts）
+
+- 最終更新: 2025-09-18
+- 現行の評価出力:
+  - 招待の選定（IRL, Plackett–Luce）: `outputs/reviewer_invitation_irl_pl_full/`
+  - 招待後の受諾/実参加: `outputs/reviewer_acceptance_after_invite_full/`
+- 旧版/整理済み出力: `outputs/_legacy/`（旧特徴を含む成果物を移設）
+- 評価と実行コマンドの詳細: `docs/poster_style_evaluation_guide.md`
