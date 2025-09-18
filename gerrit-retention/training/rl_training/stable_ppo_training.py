@@ -15,9 +15,12 @@ from datetime import datetime
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm
+
+from gerrit_retention.rl_environment.irl_reward_wrapper import IRLRewardWrapper
 from gerrit_retention.rl_environment.ppo_agent import PPOAgent, PPOConfig
 from gerrit_retention.rl_environment.review_env import ReviewAcceptanceEnvironment
-from tqdm import tqdm
+from gerrit_retention.rl_prediction.retention_irl_system import RetentionIRLSystem
 
 
 class StablePPOAgent:
@@ -190,11 +193,16 @@ def main():
         buffer_size=512         # 小さなバッファ
     )
     
-    # 環境設定
+    # 環境設定（IRL 報酬ラッパーを任意で有効化できる）
     env_config = {
         'max_episode_length': 100,
         'max_queue_size': 10,
-        'stress_threshold': 0.8
+        'stress_threshold': 0.8,
+        # 追加オプション
+        'use_irl_reward': False,            # True にすると IRL 報酬を使用
+        'irl_reward_mode': 'blend',         # 'replace' or 'blend'
+        'irl_reward_alpha': 0.7,            # blend 係数
+        'irl_model_path': None,             # 既存 IRL モデルのパス（任意）
     }
     
     print(f'📊 安定版訓練設定:')
@@ -206,6 +214,29 @@ def main():
     
     # 環境とエージェント初期化
     env = ReviewAcceptanceEnvironment(env_config)
+
+    # IRL 報酬ラップ（任意）
+    if env_config.get('use_irl_reward'):
+        irl_cfg = {
+            'state_dim': env.observation_space.shape[0],
+            'action_dim': env.action_space.n,
+            'hidden_dim': 128,
+            'learning_rate': 1e-3,
+        }
+        irl = RetentionIRLSystem(irl_cfg)
+        model_path = env_config.get('irl_model_path')
+        if model_path and os.path.exists(model_path):
+            try:
+                irl.load_model(model_path)
+                print(f"IRL モデルを読み込みました: {model_path}")
+            except Exception as e:
+                print(f"IRL モデル読み込みに失敗しました（継続）: {e}")
+        env = IRLRewardWrapper(
+            env,
+            irl_system=irl,
+            mode=str(env_config.get('irl_reward_mode', 'blend')),
+            alpha=float(env_config.get('irl_reward_alpha', 0.7)),
+        )
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
     
