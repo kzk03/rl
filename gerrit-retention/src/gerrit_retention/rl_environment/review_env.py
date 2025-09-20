@@ -87,26 +87,29 @@ class ReviewAcceptanceEnvironment(gym.Env):
         """
         super().__init__()
         self.config = config
-        
+
         # 状態空間の定義（20次元）
         self.observation_space = self._define_observation_space()
-        
+
         # 行動空間の定義（受諾/拒否/待機の3つ）
         self.action_space = spaces.Discrete(3)
-        
+
         # 環境パラメータ
         self.max_episode_length = config.get('max_episode_length', 100)
         self.max_queue_size = config.get('max_queue_size', 10)
         self.stress_threshold = config.get('stress_threshold', 0.8)
-        
+        # ランダム生成制御フラグ
+        self.use_random_initial_queue = config.get('use_random_initial_queue', True)
+        self.enable_random_new_reviews = config.get('enable_random_new_reviews', True)
+
         # 分析器の初期化
         self.stress_analyzer = StressAnalyzer(config.get('stress_config', {}))
         self.behavior_analyzer = ReviewBehaviorAnalyzer(config.get('behavior_config', {}))
         self.similarity_calculator = SimilarityCalculator(config.get('similarity_config', {}))
-        
+
         # 環境状態の初期化
         self.reset()
-        
+
         logger.info("レビュー受諾環境を初期化しました")
     
     def _define_observation_space(self) -> spaces.Box:
@@ -144,7 +147,11 @@ class ReviewAcceptanceEnvironment(gym.Env):
         # 環境状態の初期化
         self.current_step = 0
         self.developer_state = self._initialize_developer_state()
-        self.review_queue = self._initialize_review_queue()
+        # 初期レビューキュー
+        if self.use_random_initial_queue:
+            self.review_queue = self._initialize_review_queue()
+        else:
+            self.review_queue = []
         self.stress_accumulator = 0.0
         self.acceptance_history = []
         self.episode_rewards = []
@@ -317,10 +324,10 @@ class ReviewAcceptanceEnvironment(gym.Env):
         if not self.review_queue:
             # レビューがない場合は小さな負の報酬
             return -0.1
-        
+
         current_review = self.review_queue[0]
         self.total_reviews_processed += 1
-        
+
         if action == self.ACTION_REJECT:  # 拒否
             reward = self._calculate_rejection_reward(current_review)
             self.review_queue.pop(0)
@@ -328,9 +335,10 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 'action': 'reject',
                 'review': current_review,
                 'timestamp': datetime.now(),
+                'step': self.current_step,
                 'reward': reward
             })
-            
+
         elif action == self.ACTION_ACCEPT:  # 受諾
             reward = self._calculate_acceptance_reward(current_review)
             self.review_queue.pop(0)
@@ -338,11 +346,12 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 'action': 'accept',
                 'review': current_review,
                 'timestamp': datetime.now(),
+                'step': self.current_step,
                 'reward': reward
             })
             self.total_reviews_accepted += 1
             self._update_developer_state_after_acceptance(current_review)
-            
+
         else:  # 待機
             reward = self._calculate_waiting_reward(current_review)
             # レビューはキューに残る
@@ -350,12 +359,13 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 'action': 'wait',
                 'review': current_review,
                 'timestamp': datetime.now(),
+                'step': self.current_step,
                 'reward': reward
             })
-        
+
         # 新しいレビューをキューに追加（確率的）
         self._maybe_add_new_review()
-        
+
         return reward
     
     def _calculate_acceptance_reward(self, review: ReviewRequest) -> float:
@@ -368,14 +378,40 @@ class ReviewAcceptanceEnvironment(gym.Env):
         Returns:
             float: 計算された報酬
         """
-        base_reward = 1.0  # 基本受諾報酬
-        
-        # 継続報酬（最近5件の受諾履歴）
-        recent_acceptances = sum(
-            1 for h in self.acceptance_history[-5:] 
-            if h['action'] == 'accept'
-        )
-        continuity_reward = 0.3 * recent_acceptances
+        base_reward = getattr(self, 'accept_base_reward', 0.8)  # 基本受諾報酬（下げる）
+
+        # 継続報酬（reject を挟んでも直近受諾があれば継続とみなす）
+        continuity_reward = 0.0
+        weight = float(getattr(self, 'continuity_weight', 0.3))
+        mode = getattr(self, 'continuity_mode', 'decay')
+        target_author = getattr(review, 'author_email', None)
+        if weight > 0.0:
+            if mode == 'decay':
+                last_accept_step = None
+                for h in reversed(self.acceptance_history):
+                    if h.get('action') == 'accept':
+                        # 同じ開発者（著者）に限定
+                        h_review = h.get('review')
+                        if target_author is not None and getattr(h_review, 'author_email', None) != target_author:
+                            continue
+                        last_accept_step = h.get('step')
+                        break
+                if last_accept_step is not None and isinstance(last_accept_step, int):
+                    tau = float(getattr(self, 'continuity_tau', 2.0))
+                    delta = max(1, self.current_step - last_accept_step)
+                    continuity_reward = weight * float(np.exp(-delta / max(1e-6, tau)))
+            else:
+                window = int(getattr(self, 'continuity_window', 5))
+                recent = self.acceptance_history[-window:]
+                k = 0
+                for h in recent:
+                    if h.get('action') != 'accept':
+                        continue
+                    h_review = h.get('review')
+                    if target_author is not None and getattr(h_review, 'author_email', None) != target_author:
+                        continue
+                    k += 1
+                continuity_reward = weight * float(1.0 - np.exp(-float(k)))
         
         # ストレス報酬
         expertise_match = review.expertise_match
@@ -552,6 +588,8 @@ class ReviewAcceptanceEnvironment(gym.Env):
         """
         確率的に新しいレビューをキューに追加
         """
+        if not self.enable_random_new_reviews:
+            return
         if len(self.review_queue) < self.max_queue_size and np.random.random() < 0.3:
             new_review = ReviewRequest(
                 change_id=f"change_{self.current_step}_{np.random.randint(1000, 9999)}",

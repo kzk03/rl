@@ -38,12 +38,17 @@ class IRLRewardWrapper(gym.Wrapper):
         irl_system: Any,
         mode: str = "replace",
         alpha: float = 1.0,
+        engagement_bonus_weight: float = 0.0,
+        accept_action_id: int | None = None,
     ) -> None:
         super().__init__(env)
         assert mode in ("replace", "blend"), "mode must be 'replace' or 'blend'"
         self.irl_system = irl_system
         self.mode = mode
         self.alpha = float(alpha)
+        self.engagement_bonus_weight = float(engagement_bonus_weight)
+        # 受諾行動ID（既定: ReviewAcceptanceEnvironment の ACTION_ACCEPT=1 を想定）
+        self.accept_action_id = 1 if accept_action_id is None else int(accept_action_id)
 
         # 推論用に state_dim / action_dim を決定
         # 既存 IRL モデルの設定と合うことが望ましい。
@@ -72,6 +77,14 @@ class IRLRewardWrapper(gym.Wrapper):
         else:  # blend
             new_reward = float(self.alpha * irl_reward + (1.0 - self.alpha) * orig_reward)
 
+        # エンゲージメント（レビューしてくれる＝受諾）ボーナス
+        engagement_bonus = 0.0
+        if self.engagement_bonus_weight != 0.0 and int(action) == int(self.accept_action_id):
+            # ボーナスはキュー充填率やストレスに応じて控えめに重み付け可能
+            # ここでは単純に定数重みを加算（必要なら info から調整可能）
+            engagement_bonus = float(self.engagement_bonus_weight)
+            new_reward += engagement_bonus
+
         # デバッグ用に情報を付与
         info = dict(info or {})
         info.update({
@@ -79,6 +92,8 @@ class IRLRewardWrapper(gym.Wrapper):
             "irl_reward": float(irl_reward),
             "reward_mode": self.mode,
             "reward_alpha": self.alpha,
+            "engagement_bonus": float(engagement_bonus),
+            "accept_action_id": int(self.accept_action_id),
         })
 
         return next_obs, new_reward, terminated, truncated, info

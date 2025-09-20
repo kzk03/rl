@@ -20,6 +20,7 @@ from tqdm import tqdm
 from gerrit_retention.rl_environment.irl_reward_wrapper import IRLRewardWrapper
 from gerrit_retention.rl_environment.ppo_agent import PPOAgent, PPOConfig
 from gerrit_retention.rl_environment.review_env import ReviewAcceptanceEnvironment
+from gerrit_retention.rl_environment.time_split_data_wrapper import TimeSplitDataWrapper
 from gerrit_retention.rl_prediction.retention_irl_system import RetentionIRLSystem
 
 
@@ -198,11 +199,17 @@ def main():
         'max_episode_length': 100,
         'max_queue_size': 10,
         'stress_threshold': 0.8,
+    # 実データのみを使うためのランダム生成OFF
+    'use_random_initial_queue': False,
+    'enable_random_new_reviews': False,
         # 追加オプション
         'use_irl_reward': False,            # True にすると IRL 報酬を使用
         'irl_reward_mode': 'blend',         # 'replace' or 'blend'
         'irl_reward_alpha': 0.7,            # blend 係数
         'irl_model_path': None,             # 既存 IRL モデルのパス（任意）
+    # 開発者が「レビューしてくれる（受諾）」ことへのボーナス
+    'engagement_bonus_weight': 0.0,     # >0 にすると受諾時にボーナス加算
+    'accept_action_id': 1,              # 受諾行動ID（環境の定義に合わせる）
     }
     
     print(f'📊 安定版訓練設定:')
@@ -214,6 +221,12 @@ def main():
     
     # 環境とエージェント初期化
     env = ReviewAcceptanceEnvironment(env_config)
+    # 時系列データ分割（任意）: extended_test_data.json と cutoff を使って供給
+    time_split_enabled = True
+    cutoff_iso = os.environ.get('STABLE_RL_CUTOFF', '2023-04-01T00:00:00Z')
+    data_path = os.environ.get('STABLE_RL_DATA', os.path.join('data', 'extended_test_data.json'))
+    if time_split_enabled:
+        env = TimeSplitDataWrapper(env, data_path=data_path, cutoff_iso=cutoff_iso, phase='train')
 
     # IRL 報酬ラップ（任意）
     if env_config.get('use_irl_reward'):
@@ -236,6 +249,8 @@ def main():
             irl_system=irl,
             mode=str(env_config.get('irl_reward_mode', 'blend')),
             alpha=float(env_config.get('irl_reward_alpha', 0.7)),
+            engagement_bonus_weight=float(env_config.get('engagement_bonus_weight', 0.0)),
+            accept_action_id=int(env_config.get('accept_action_id', 1)),
         )
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
@@ -258,11 +273,17 @@ def main():
     start_time = time.time()
     best_avg_reward = float('-inf')
     
-    total_episodes = 500  # 安定実行用
+    # 訓練/評価エピソード数（擬似データ分割: シードを変えて別分布を模擬）
+    train_episodes = 400
+    eval_episodes = 100
+    train_seed = 42
+    eval_seed = 4242
+    total_episodes = train_episodes
     
     try:
         for episode in tqdm(range(total_episodes), desc='安定版PPO訓練'):
-            obs, _ = env.reset()
+            # 訓練用シード（エピソードごとにずらす）
+            obs, _ = env.reset(seed=train_seed + episode)
             episode_reward = 0.0
             episode_length = 0
             
@@ -364,6 +385,62 @@ def main():
             percentage = count / total_actions * 100
             print(f'{action}: {count:,}回 ({percentage:.1f}%)')
     
+    # =============================
+    # 評価フェーズ（学習停止・貪欲方策）
+    # =============================
+    print('\n=== 🧪 評価フェーズ開始（学習停止・貪欲方策） ===')
+    eval_rewards = []
+    eval_lengths = []
+    eval_action_counts = {'reject': 0, 'accept': 0, 'wait': 0}
+    max_steps = env_config.get('max_episode_length', 100)
+
+    def greedy_action(obs_arr):
+        st = torch.FloatTensor(obs_arr).unsqueeze(0)
+        with torch.no_grad():
+            probs = agent.policy_net(st)
+            if torch.isnan(probs).any():
+                probs = torch.ones(1, action_dim) / action_dim
+            act = torch.argmax(probs, dim=1).item()
+        return int(act)
+
+    # 評価時は eval フェーズ（cutoff より新しいデータ）に切替
+    if time_split_enabled:
+        env = TimeSplitDataWrapper(ReviewAcceptanceEnvironment(env_config), data_path=data_path, cutoff_iso=cutoff_iso, phase='eval')
+    for e in range(eval_episodes):
+        obs, _ = env.reset(seed=eval_seed + e)
+        ep_rew = 0.0
+        ep_len = 0
+        for step in range(max_steps):
+            a = greedy_action(obs)
+            next_obs, r, terminated, truncated, info = env.step(a)
+            # 統計
+            try:
+                name = ['reject', 'accept', 'wait'][a]
+            except Exception:
+                name = 'unknown'
+            if name in eval_action_counts:
+                eval_action_counts[name] += 1
+            ep_rew += r
+            ep_len += 1
+            obs = next_obs
+            if terminated or truncated:
+                break
+        eval_rewards.append(ep_rew)
+        eval_lengths.append(ep_len)
+
+    if eval_rewards:
+        eval_avg = float(np.mean(eval_rewards))
+        eval_std = float(np.std(eval_rewards))
+        eval_len = float(np.mean(eval_lengths))
+        print('\n=== 📊 評価結果（更新なし） ===')
+        print(f'  評価エピソード数: {eval_episodes}')
+        print(f'  平均報酬: {eval_avg:.3f} ± {eval_std:.3f}')
+        print(f'  平均長: {eval_len:.1f}')
+        if sum(eval_action_counts.values()) > 0:
+            tot = sum(eval_action_counts.values())
+            dist = {k: (v / tot * 100.0) for k, v in eval_action_counts.items()}
+            print('  行動分布(%)', {k: f'{v:.1f}' for k, v in dist.items()})
+
     # 結果保存
     results = {
         'timestamp': datetime.now().isoformat(),
@@ -374,6 +451,18 @@ def main():
         'mean_reward': float(np.mean(episode_rewards)) if episode_rewards else 0.0,
         'best_reward': float(best_avg_reward) if best_avg_reward != float('-inf') else 0.0,
         'action_distribution': {k: int(v) for k, v in action_counts.items()},
+        'train': {
+            'episodes': int(train_episodes),
+            'seed': int(train_seed),
+        },
+        'eval': {
+            'episodes': int(eval_episodes),
+            'seed': int(eval_seed),
+            'mean_reward': float(np.mean(eval_rewards)) if eval_rewards else 0.0,
+            'std_reward': float(np.std(eval_rewards)) if eval_rewards else 0.0,
+            'mean_length': float(np.mean(eval_lengths)) if eval_lengths else 0.0,
+            'action_distribution': {k: int(v) for k, v in eval_action_counts.items()},
+        },
         'status': 'completed_successfully'
     }
     
