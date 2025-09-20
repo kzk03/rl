@@ -336,6 +336,7 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 'review': current_review,
                 'timestamp': datetime.now(),
                 'step': self.current_step,
+                'reviewer': self.developer_state.developer_email,
                 'reward': reward
             })
 
@@ -347,6 +348,7 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 'review': current_review,
                 'timestamp': datetime.now(),
                 'step': self.current_step,
+                'reviewer': self.developer_state.developer_email,
                 'reward': reward
             })
             self.total_reviews_accepted += 1
@@ -360,6 +362,7 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 'review': current_review,
                 'timestamp': datetime.now(),
                 'step': self.current_step,
+                'reviewer': self.developer_state.developer_email,
                 'reward': reward
             })
 
@@ -384,15 +387,15 @@ class ReviewAcceptanceEnvironment(gym.Env):
         continuity_reward = 0.0
         weight = float(getattr(self, 'continuity_weight', 0.3))
         mode = getattr(self, 'continuity_mode', 'decay')
-        target_author = getattr(review, 'author_email', None)
+        # 継続は「同一レビュアー（本環境の開発者）によるレビュー継続」が定義
+        target_reviewer = getattr(self.developer_state, 'developer_email', None)
         if weight > 0.0:
             if mode == 'decay':
                 last_accept_step = None
                 for h in reversed(self.acceptance_history):
                     if h.get('action') == 'accept':
-                        # 同じ開発者（著者）に限定
-                        h_review = h.get('review')
-                        if target_author is not None and getattr(h_review, 'author_email', None) != target_author:
+                        # 同じレビュアーに限定
+                        if target_reviewer is not None and h.get('reviewer') != target_reviewer:
                             continue
                         last_accept_step = h.get('step')
                         break
@@ -407,8 +410,7 @@ class ReviewAcceptanceEnvironment(gym.Env):
                 for h in recent:
                     if h.get('action') != 'accept':
                         continue
-                    h_review = h.get('review')
-                    if target_author is not None and getattr(h_review, 'author_email', None) != target_author:
+                    if target_reviewer is not None and h.get('reviewer') != target_reviewer:
                         continue
                     k += 1
                 continuity_reward = weight * float(1.0 - np.exp(-float(k)))
