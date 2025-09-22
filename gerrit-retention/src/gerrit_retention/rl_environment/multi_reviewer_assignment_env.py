@@ -110,6 +110,10 @@ class MultiReviewerAssignmentEnv(gym.Env):
                 denom = max(1e-9, float(sum(exps)))
                 p = exps[action] / denom if action < len(exps) else 0.0
                 reward = float(p)
+            elif self.reward_mode == "accept_prob":
+                # Use logistic(sigmoid) of linear utility as acceptance probability
+                u = self._irl_utility(chosen.features)
+                reward = float(1.0 / (1.0 + np.exp(-u)))
             # Note: if continuity is disabled, do nothing
 
             # Continuity bonus: if same reviewer selected again after gap

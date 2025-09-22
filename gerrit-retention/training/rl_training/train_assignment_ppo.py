@@ -16,6 +16,10 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import DummyVecEnv
 
 from gerrit_retention.offline.build_assignment_tasks import build_tasks_from_samples
+from gerrit_retention.recommendation.reviewer_acceptance_after_invite import (
+    AcceptanceBuildConfig,
+    evaluate_acceptance_after_invite,
+)
 from gerrit_retention.recommendation.reviewer_invitation_ranking import (
     InvitationRankingBuildConfig,
     InvitationRankingModel,
@@ -77,7 +81,7 @@ def main():
     ap.add_argument('--changes', default='data/processed/unified/all_reviews.json')
     ap.add_argument('--max-candidates', type=int, default=8)
     ap.add_argument('--timesteps', type=int, default=50_000)
-    ap.add_argument('--reward-mode', choices=['match_gt', 'irl_softmax'], default='match_gt')
+    ap.add_argument('--reward-mode', choices=['match_gt', 'irl_softmax', 'accept_prob'], default='match_gt')
     ap.add_argument('--continuity-weight', type=float, default=0.0)
     ap.add_argument('--continuity-tau', type=float, default=2.0)
     ap.add_argument('--output', default='outputs/assignment_rl')
@@ -105,6 +109,21 @@ def main():
         if getattr(wrapped, 'features', None) and list(wrapped.features) != list(feature_keys):
             print('Warning: IRL feature list differs from env features; proceeding but scores may mismatch.')
         irl_model = {'theta': getattr(wrapped, 'theta', None), 'scaler': getattr(wrapped, 'scaler', None)}
+    elif args.reward_mode == 'accept_prob':
+        # Fit acceptance-after-invite model and pass logistic weights to env
+        acc_metrics, acc_model, _, _ = evaluate_acceptance_after_invite(args.changes, AcceptanceBuildConfig())
+        # Extract theta (coef + intercept) and scaler
+        theta = None
+        scaler = None
+        try:
+            lr = getattr(acc_model, 'model', None)
+            scaler = getattr(acc_model, 'scaler', None)
+            if lr is not None and hasattr(lr, 'coef_') and hasattr(lr, 'intercept_'):
+                import numpy as np  # local import to avoid polluting module scope
+                theta = np.append(lr.coef_.ravel(), float(lr.intercept_.ravel()[0]))
+        except Exception as e:
+            print(f"Warning: failed to extract acceptance theta: {e}")
+        irl_model = {'theta': theta, 'scaler': scaler, 'kind': 'logistic'}
     train_tasks, feature_order = build_tasks_from_samples(train_s, feature_keys, args.max_candidates)
     eval_tasks, _ = build_tasks_from_samples(eval_s, feature_keys, args.max_candidates)
     print(f"Split: changes train={n_train_changes}, eval={n_eval_changes} | tasks train={len(train_tasks)}, eval={len(eval_tasks)}")
