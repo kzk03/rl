@@ -10,7 +10,7 @@ from .developer_features import (
     DeveloperFeatures,
     create_developer_feature_extractor,
 )
-from .feature_integration import (
+from .combine_feature import (
     FeatureIntegrator,
     IntegratedFeatures,
     batch_extract_integrated_features,
