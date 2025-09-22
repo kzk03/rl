@@ -61,9 +61,18 @@ MIT License
 
 ## 最新出力参照先（Last Artifacts）
 
-- 最終更新: 2025-09-18
-- 現行の評価出力:
-  - 招待の選定（IRL, Plackett–Luce）: `outputs/reviewer_invitation_irl_pl_full/`
-  - 招待後の受諾/実参加: `outputs/reviewer_acceptance_after_invite_full/`
+- 招待の選定（IRL, Plackett–Luce）: `outputs/reviewer_invitation_irl_pl_full/`
+- 招待後の受諾/実参加: `outputs/reviewer_acceptance_after_invite_full/`
 - 旧版/整理済み出力: `outputs/_legacy/`（旧特徴を含む成果物を移設）
+
+### Reviewer assignment with RL (multi-reviewer)
+
+- Goal: choose a reviewer for each change from multiple candidates.
+- Env: `MultiReviewerAssignmentEnv` (observation = per-candidate features, action = reviewer index)
+- Data: reuses samples from `scripts/run_reviewer_invitation_ranking.py` pipeline.
+- Train:
+
+  - uv run python training/rl_training/train_assignment_ppo.py --changes data/processed/unified/all_reviews.json --timesteps 50000
+  - Output: `outputs/assignment_rl/eval_summary.txt` with avg reward/step (approx. top-1 accuracy against ground truth participants).
+
 - 評価と実行コマンドの詳細: `docs/poster_style_evaluation_guide.md`
