@@ -215,6 +215,102 @@ class RetentionFeatureExtractor:
             exp_decay_30 = float(np.exp(-gap_days / 30.0))  # 30日スケールの減衰
             features.extend([gap_days, inv_gap, exp_decay_30])
 
+        # Per-request passthrough features (from examples/build_eval_from_review_requests.py)
+        # すべて任意。存在する場合のみ安全に取り込む。
+        def _f(name: str, default: float = 0.0) -> float:
+            try:
+                v = developer.get(name, default)
+                if v is None or (isinstance(v, float) and np.isnan(v)):
+                    return default
+                return float(v)
+            except Exception:
+                return default
+
+        # Reviewer activity windows
+        rv30 = _f('reviewer_past_reviews_30d')
+        rv90 = _f('reviewer_past_reviews_90d')
+        rv180 = _f('reviewer_past_reviews_180d')
+        # Owner activity windows
+        ow30 = _f('owner_past_messages_30d')
+        ow90 = _f('owner_past_messages_90d')
+        ow180 = _f('owner_past_messages_180d')
+        # Owner-Reviewer interactions (global proximity)
+        inter180 = _f('owner_reviewer_past_interactions_180d')
+        inter180_proj = _f('owner_reviewer_project_interactions_180d')
+        pair_assign180 = _f('owner_reviewer_past_assignments_180d')
+        # Assignment load
+        load7 = _f('reviewer_assignment_load_7d')
+        load30 = _f('reviewer_assignment_load_30d')
+        load180 = _f('reviewer_assignment_load_180d')
+        resp_rate180 = _f('reviewer_past_response_rate_180d')
+        # Tenure
+        rv_tenure = _f('reviewer_tenure_days')
+        ow_tenure = _f('owner_tenure_days')
+        # Change complexity
+        ins = _f('change_insertions')
+        dels = _f('change_deletions')
+        files = _f('change_files_count')
+        wip = _f('work_in_progress')
+        subj = _f('subject_len')
+        # Path similarity/overlap features (auto-collect)
+        path_feature_names = [
+            # overlaps (counts)
+            'path_overlap_files_global', 'path_overlap_dir1_global', 'path_overlap_dir2_global',
+            'path_overlap_files_project', 'path_overlap_dir1_project', 'path_overlap_dir2_project',
+            # jaccard
+            'path_jaccard_files_global', 'path_jaccard_dir1_global', 'path_jaccard_dir2_global',
+            'path_jaccard_files_project', 'path_jaccard_dir1_project', 'path_jaccard_dir2_project',
+            # dice
+            'path_dice_files_global', 'path_dice_dir1_global', 'path_dice_dir2_global',
+            'path_dice_files_project', 'path_dice_dir1_project', 'path_dice_dir2_project',
+            # overlap coefficient
+            'path_overlap_coeff_files_global', 'path_overlap_coeff_dir1_global', 'path_overlap_coeff_dir2_global',
+            'path_overlap_coeff_files_project', 'path_overlap_coeff_dir1_project', 'path_overlap_coeff_dir2_project',
+            # cosine
+            'path_cosine_files_global', 'path_cosine_dir1_global', 'path_cosine_dir2_global',
+            'path_cosine_files_project', 'path_cosine_dir1_project', 'path_cosine_dir2_project',
+        ]
+        path_feats_raw = [ _f(n) for n in path_feature_names ]
+
+        # Safe transforms (log1p for heavy-tailed counts)
+        def L(x: float) -> float:
+            try:
+                return float(np.log1p(max(0.0, x)))
+            except Exception:
+                return 0.0
+
+        # Add raw smaller-window counts and log-scaled heavy features
+        features.extend([
+            # reviewer activity
+            rv30, rv90, rv180, L(rv180),
+            # owner activity
+            ow30, ow90, ow180, L(ow180),
+            # interactions (global/project) and load
+            L(inter180), L(inter180_proj), L(pair_assign180), load7, load30, load180, resp_rate180,
+            # tenure (log-scaled)
+            L(rv_tenure), L(ow_tenure),
+            # code churn / complexity (log-scaled)
+            L(ins), L(dels), L(ins + dels), L(files),
+            # flags and text size
+            float(1.0 if wip >= 0.5 else 0.0), L(subj),
+            # path features: counts are log1p, bounded sims stay as-is
+            # indices: 0..5 are counts; 6.. are bounded [0,1] similarities
+            L(path_feats_raw[0]), L(path_feats_raw[1]), L(path_feats_raw[2]),
+            L(path_feats_raw[3]), L(path_feats_raw[4]), L(path_feats_raw[5]),
+            # jaccard
+            path_feats_raw[6], path_feats_raw[7], path_feats_raw[8],
+            path_feats_raw[9], path_feats_raw[10], path_feats_raw[11],
+            # dice
+            path_feats_raw[12], path_feats_raw[13], path_feats_raw[14],
+            path_feats_raw[15], path_feats_raw[16], path_feats_raw[17],
+            # overlap coefficient
+            path_feats_raw[18], path_feats_raw[19], path_feats_raw[20],
+            path_feats_raw[21], path_feats_raw[22], path_feats_raw[23],
+            # cosine
+            path_feats_raw[24], path_feats_raw[25], path_feats_raw[26],
+            path_feats_raw[27], path_feats_raw[28], path_feats_raw[29],
+        ])
+
         return np.array(features)
     
     def _calculate_historical_retention_pattern(self, 

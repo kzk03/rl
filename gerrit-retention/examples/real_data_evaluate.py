@@ -47,10 +47,41 @@ def row_to_inputs(row: pd.Series) -> Dict[str, Any]:
     email = row.get("developer_email", row.get("email"))
     if isinstance(email, str):
         dev["email"] = email
-    # pass through common numeric fields if present
-    for col in ["days_since_last_activity", "community_participation", "team_trust_level"]:
+    # pass through numeric fields if present (from per-request builder)
+    passthrough_cols = [
+        # gap and generic
+        "days_since_last_activity", "community_participation", "team_trust_level",
+        # reviewer activity windows
+        "reviewer_past_reviews_30d", "reviewer_past_reviews_90d", "reviewer_past_reviews_180d",
+        # owner activity windows
+        "owner_past_messages_30d", "owner_past_messages_90d", "owner_past_messages_180d",
+        # owner↔reviewer interactions
+    "owner_reviewer_past_interactions_180d",
+    "owner_reviewer_project_interactions_180d",
+    "owner_reviewer_past_assignments_180d",
+        # assignment load
+    "reviewer_assignment_load_7d", "reviewer_assignment_load_30d", "reviewer_assignment_load_180d",
+    # response rate proxy
+    "reviewer_past_response_rate_180d",
+        # tenure
+        "reviewer_tenure_days", "owner_tenure_days",
+        # change complexity and flags
+        "change_insertions", "change_deletions", "change_files_count",
+        "work_in_progress", "subject_len",
+    ]
+    for col in passthrough_cols:
         if col in row and pd.notna(row[col]):
-            dev[col] = float(row[col])
+            try:
+                dev[col] = float(row[col])
+            except Exception:
+                pass
+    # auto-pass all path_* similarity/overlap features
+    for col in row.index:
+        if isinstance(col, str) and col.startswith("path_") and pd.notna(row[col]):
+            try:
+                dev[col] = float(row[col])
+            except Exception:
+                pass
 
     ctx: Dict[str, Any] = {}
     ts = row.get("context_date")
