@@ -10,3 +10,33 @@
   - `stress_analyzer.py` / `stress_mitigation_advisor.py`: ストレス分析と提言。
   - `advanced_accuracy_improver.py`: 高度な精度向上パイプライン。
   - `ab_testing_system.py`: AB テスト連携。
+
+## IRL 特徴の有効化（クイックスタート）
+
+1. IRL モデルを用意（例: MaxEntBinaryIRL を学習して保存）
+
+2. 予測器の設定で有効化:
+
+```python
+from gerrit_retention.prediction.retention_predictor import RetentionPredictor
+
+config = {
+    'feature_extraction': {
+        'irl_features': {
+            'enabled': True,
+            'model_path': '/path/to/irl_model.joblib',  # 省略可（後から set_irl_model でも可）
+            'idle_gap_threshold': 45,
+        }
+    }
+}
+
+predictor = RetentionPredictor(config)
+# もしくは後から学習済IRLを注入
+# predictor.set_irl_model(irl)
+
+# 通常通り fit/predict
+predictor.fit(developers, contexts, labels)
+prob = predictor.predict_retention_probability(developer, context)
+```
+
+3. IRL の学習は `prediction/irl_training_utils.py` の `build_transitions_from_events` と `fit_maxent_irl` を参照。

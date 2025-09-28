@@ -12,11 +12,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urljoin
 
 import requests
-from gerrit_retention.utils.config_manager import get_config_manager
-from gerrit_retention.utils.logger import get_logger
 from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
+
+from gerrit_retention.utils.config_manager import get_config_manager
+from gerrit_retention.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -311,10 +312,11 @@ class GerritClient:
             params = {
                 "o": [
                     "DETAILED_ACCOUNTS",
-                    "ALL_REVISIONS", 
+                    "ALL_REVISIONS",
                     "ALL_FILES",
                     "MESSAGES",
-                    "DETAILED_LABELS"
+                    "DETAILED_LABELS",
+                    "REVIEWER_UPDATES"
                 ]
             }
             
@@ -347,6 +349,25 @@ class GerritClient:
             
         except Exception as e:
             logger.error(f"レビュー一覧の取得に失敗: {e}")
+            raise
+
+    def get_change_reviewers(self, change_id: str) -> List[Dict[str, Any]]:
+        """
+        変更に紐づくレビュア一覧を取得
+
+        Args:
+            change_id: 変更ID
+
+        Returns:
+            List[Dict[str, Any]]: レビュアのアカウント情報リスト
+        """
+        try:
+            logger.debug(f"変更 '{change_id}' のレビュア一覧を取得中...")
+            response = self._make_request("GET", f"/changes/{change_id}/reviewers")
+            reviewers = self._parse_gerrit_response(response)
+            return reviewers
+        except Exception as e:
+            logger.error(f"レビュア一覧の取得に失敗: {e}")
             raise
     
     def get_account_info(self, account_id: str) -> Dict[str, Any]:

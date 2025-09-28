@@ -15,6 +15,8 @@ from typing import Any, Dict, List, Optional
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src"))
 
+from omegaconf import OmegaConf
+
 from gerrit_retention.data_integration.gerrit_client import create_gerrit_client
 from gerrit_retention.utils.config_manager import get_config_manager
 from gerrit_retention.utils.logger import get_logger, setup_logging
@@ -48,7 +50,12 @@ class ChangesExtractor:
     
     def _load_config(self) -> Dict[str, Any]:
         """設定を読み込み"""
-        return self.config_manager.get_config().to_dict()
+        cfg = self.config_manager.get_config()
+        try:
+            return OmegaConf.to_container(cfg, resolve=True)  # type: ignore[arg-type]
+        except Exception:
+            # 最低限の空設定を返す
+            return {}
     
     def extract_changes_for_project(
         self,
@@ -92,9 +99,17 @@ class ChangesExtractor:
                 try:
                     # 詳細情報を取得
                     change_detail = self.gerrit_client.get_change_detail(change["id"])
+                    # レビュア一覧も取得（/reviewers）
+                    reviewers_list = []
+                    try:
+                        reviewers_list = self.gerrit_client.get_change_reviewers(change["id"]) or []
+                    except Exception as re:
+                        logger.debug(f"レビュア一覧取得に失敗（継続）: {re}")
                     
                     # 基本情報と詳細情報をマージ
                     enhanced_change = {**change, **change_detail}
+                    if reviewers_list:
+                        enhanced_change.setdefault("_reviewers", reviewers_list)
                     detailed_changes.append(enhanced_change)
                     
                     if (i + 1) % 10 == 0:

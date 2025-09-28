@@ -94,11 +94,45 @@ class RetentionFeatureExtractor:
         self.config = config
         self.feature_integrator = FeatureIntegrator(config.get('feature_integration', {}))
         self.data_transformer = DataTransformer(config.get('data_transformation', {}))
+
+        # IRL feature adapter (optional)
+        self.irl_enabled = config.get('irl_features', {}).get('enabled', False)
+        self.irl_adapter = None
+        if self.irl_enabled:
+            try:
+                from ..irl.maxent_binary_irl import MaxEntBinaryIRL
+                from .irl_feature_adapter import (
+                    IRLFeatureAdapter,
+                    IRLFeatureAdapterConfig,
+                )
+                irl_conf = config.get('irl_features', {})
+                self._irl_model = MaxEntBinaryIRL()  # Expect caller to fit and set externally if needed
+                self.irl_adapter = IRLFeatureAdapter(
+                    irl_model=self._irl_model,
+                    config=IRLFeatureAdapterConfig(
+                        idle_gap_threshold=irl_conf.get('idle_gap_threshold', 45)
+                    ),
+                )
+                # Optional: load a pre-trained IRL model from path
+                model_path = irl_conf.get('model_path')
+                if isinstance(model_path, str) and len(model_path) > 0:
+                    try:
+                        loaded = joblib.load(model_path)
+                        self._irl_model = loaded
+                        self.irl_adapter.irl_model = loaded
+                        logger.info(f"IRLモデルをロードしました: {model_path}")
+                    except Exception as e:
+                        logger.warning(f"IRLモデルのロードに失敗しました（スキップ）: {e}")
+            except Exception as e:
+                logger.warning(f"IRL特徴の初期化に失敗しました: {e}")
+                self.irl_enabled = False
         
         # 定着予測特有の設定
         self.retention_window_days = config.get('retention_window_days', 180)  # 6ヶ月
         self.activity_threshold = config.get('activity_threshold', 1)  # 最低活動回数
         self.time_decay_factor = config.get('time_decay_factor', 0.95)  # 時間減衰係数
+        # ギャップ系特徴の有無（ラベルがギャップ由来のときのフェアネス向上のために無効化可能）
+        self.include_gap_features = bool(config.get('include_gap_features', True))
         
     def extract_features(self, 
                         developer: Dict[str, Any], 
@@ -129,11 +163,17 @@ class RetentionFeatureExtractor:
             developer, context, integrated_features
         )
         
+        parts = [integrated_features.feature_vector, retention_specific_features]
+        # IRL由来特徴の付与（有効化時）
+        if self.irl_enabled and self.irl_adapter is not None:
+            try:
+                irl_feats, _ = self.irl_adapter.compute_features(developer, context)
+                parts.append(irl_feats)
+            except Exception as e:
+                logger.debug(f"IRL特徴の抽出に失敗（スキップ）: {e}")
+
         # 特徴量を結合
-        combined_features = np.concatenate([
-            integrated_features.feature_vector,
-            retention_specific_features
-        ])
+        combined_features = np.concatenate(parts)
         
         return combined_features
     
@@ -164,7 +204,17 @@ class RetentionFeatureExtractor:
         # 時期・季節性要因
         temporal_factors = self._calculate_temporal_factors(context)
         features.extend(temporal_factors)
-        
+
+        # ギャップ系特徴（最終活動からの経過日数）
+        # ラベルがギャップしきい値由来の場合にリーク的になるため、設定で無効化できるようにする
+        if self.include_gap_features:
+            gap_days = float(developer.get('days_since_last_activity', 0.0) or 0.0)
+            gap_days = max(0.0, min(gap_days, 3650.0))  # 10年でクリップ
+            # 単純な非線形変換も併せて付与（モデル依存度を下げるための基底関数）
+            inv_gap = 1.0 / (1.0 + gap_days)
+            exp_decay_30 = float(np.exp(-gap_days / 30.0))  # 30日スケールの減衰
+            features.extend([gap_days, inv_gap, exp_decay_30])
+
         return np.array(features)
     
     def _calculate_historical_retention_pattern(self, 
@@ -341,6 +391,9 @@ class RetentionPredictor:
         self.feature_extractor = RetentionFeatureExtractor(
             model_config.get('feature_extraction', {})
         )
+
+        # 外部からIRLモデルを差し込むためのフック
+        self.irl_adapter = getattr(self.feature_extractor, 'irl_adapter', None)
         
         # アンサンブルモデルの初期化
         self.models = {}
@@ -451,9 +504,16 @@ class RetentionPredictor:
             try:
                 model.fit(X, y)
                 
-                # クロスバリデーションで性能評価
-                cv_scores = cross_val_score(model, X, y, cv=5, scoring='roc_auc')
-                logger.info(f"{model_name} CV AUC: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+                # クロスバリデーションで性能評価（少数データでは分割数を調整）
+                try:
+                    cv = 5
+                    n_samples = X.shape[0]
+                    if n_samples < 5:
+                        cv = max(2, n_samples)
+                    cv_scores = cross_val_score(model, X, y, cv=cv, scoring='roc_auc')
+                    logger.info(f"{model_name} CV AUC (cv={cv}): {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
+                except Exception as cv_err:
+                    logger.info(f"{model_name} CV評価をスキップ: {cv_err}")
                 
                 # SHAP説明器を初期化
                 if model_name == 'random_forest':
@@ -472,6 +532,33 @@ class RetentionPredictor:
         
         self.is_fitted = True
         logger.info("定着予測モデルの訓練が完了しました")
+
+    def set_irl_model(self, irl_model: Any) -> None:
+        """外部で学習済みのIRLモデルを差し込む。
+
+        例:
+            from src.gerrit_retention.irl.maxent_binary_irl import MaxEntBinaryIRL
+            irl = MaxEntBinaryIRL(...); irl.fit(transitions)
+            predictor.set_irl_model(irl)
+        """
+        try:
+            if hasattr(self.feature_extractor, 'irl_adapter') and self.feature_extractor.irl_adapter is not None:
+                self.feature_extractor.irl_adapter.irl_model = irl_model
+                self.irl_adapter = self.feature_extractor.irl_adapter
+                logger.info("IRLモデルを予測器へ適用しました（IRL特徴有効）")
+            else:
+                logger.warning("IRL特徴が無効化されています。model_config.feature_extraction.irl_features.enabled を True にしてください。")
+        except Exception as e:
+            logger.error(f"IRLモデルの適用でエラー: {e}")
+
+    def set_irl_model_from_path(self, model_path: str) -> None:
+        """事前学習済みIRLモデルをファイルから読み込み、適用する。"""
+        try:
+            irl_model = joblib.load(model_path)
+            self.set_irl_model(irl_model)
+            logger.info(f"IRLモデルをファイルから適用しました: {model_path}")
+        except Exception as e:
+            logger.error(f"IRLモデルの読み込みでエラー: {e}")
     
     def predict_retention_probability(self, 
                                     developer: Dict[str, Any], 
@@ -497,7 +584,31 @@ class RetentionPredictor:
         predictions = {}
         for model_name, model in self.models.items():
             try:
-                prob = model.predict_proba(X)[0][1]  # 定着確率（クラス1）
+                proba = model.predict_proba(X)
+                # 予測確率の形状に応じてクラス1の確率を取り出す
+                if hasattr(model, "classes_"):
+                    classes = getattr(model, "classes_", None)
+                    if classes is not None:
+                        classes = np.array(classes)
+                        if classes.ndim == 1:
+                            # クラス1の列インデックスを特定
+                            idx_ones = np.where(classes == 1)[0]
+                            if idx_ones.size == 1 and proba.shape[1] > idx_ones[0]:
+                                prob = float(proba[0, idx_ones[0]])
+                            elif classes.size == 1:
+                                # 単一クラスで学習された場合
+                                only_cls = int(classes[0])
+                                prob = 1.0 if only_cls == 1 else 0.0
+                            else:
+                                # 想定外の形状
+                                prob = float(proba[0, -1]) if proba.ndim == 2 else float(proba[0])
+                        else:
+                            prob = float(proba[0, -1])
+                    else:
+                        prob = float(proba[0, -1])
+                else:
+                    # classes_が無い場合は最後の列をクラス1相当とみなす
+                    prob = float(proba[0, -1]) if proba.ndim == 2 else float(proba[0])
                 predictions[model_name] = prob
             except Exception as e:
                 logger.warning(f"{model_name}での予測でエラー: {e}")
