@@ -1,4 +1,5 @@
-# モデル設定ファイル
+# モデル設定ファイル（configs/api/model_config.yaml）
+# 旧 config/ 配置から移行済み。現在は configs/api/ のみを参照します。
 models:
   retention:
     name: "retention_predictor"

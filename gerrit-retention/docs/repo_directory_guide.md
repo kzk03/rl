@@ -15,6 +15,8 @@
 - docs: ドキュメント集（本ファイル含む）
 - docker: 実行環境の Docker 定義
 - configs/config: 設定ファイル群（環境別、モジュール別）
+  - ポリシー更新: API 専用設定は `configs/api/` に統一。`config/` はレガシー互換として当面維持（将来的に廃止予定）。
+  - data と data_processing の分離: コードは `data_processing/` に置き、生成物は `data/` に保存する。
 
 ---
 

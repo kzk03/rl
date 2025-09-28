@@ -7,6 +7,7 @@
 from pathlib import Path
 
 import pytest
+
 from api.core.config import Settings, get_settings
 from api.core.exceptions import APIException, ModelNotAvailableError, ValidationError
 from api.core.logging import generate_request_id, get_logger
@@ -26,10 +27,11 @@ class TestConfiguration:
 
     def test_config_file_loading(self):
         """設定ファイル読み込みのテスト"""
-        settings = Settings(config_dir=Path("config"))
+        # 既定（configs/api/ 優先）を使用
+        settings = Settings()
         
-        # 設定ファイルが存在する場合の検証
-        if (Path("config") / "api_config.yaml").exists():
+        # 設定ファイルが存在する場合の検証（新パス）
+        if (Path("configs/api") / "api_config.yaml").exists():
             assert settings.model_configs is not None
             assert isinstance(settings.model_configs, dict)
 

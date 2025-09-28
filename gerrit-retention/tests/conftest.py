@@ -7,18 +7,17 @@ pytest の共通設定とフィクスチャを定義します。
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+
 from api.core.config import Settings
 from api.main import create_app
-from fastapi.testclient import TestClient
 
 
 @pytest.fixture
 def test_settings():
     """テスト用設定"""
-    return Settings(
-        config_dir=Path("config"),
-        log_level="DEBUG"
-    )
+    # 既定（configs/api/ 優先）を使用
+    return Settings(log_level="DEBUG")
 
 
 @pytest.fixture

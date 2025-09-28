@@ -88,7 +88,10 @@ class Settings(BaseSettings):
     """メイン設定クラス"""
     
     # 設定ファイルパス
-    config_dir: Path = Field(default=Path("config"), description="設定ディレクトリ")
+    config_dir: Path = Field(
+        default=Path("configs/api"),
+        description="設定ディレクトリ（既定は configs/api/ のみを使用）",
+    )
     
     # サブ設定
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -115,19 +118,33 @@ class Settings(BaseSettings):
     def _load_config_files(self):
         """設定ファイルを読み込み"""
         try:
-            # API設定ファイル読み込み
-            api_config_path = self.config_dir / "api_config.yaml"
-            if api_config_path.exists():
+            def first_existing(*paths: Path) -> Optional[Path]:
+                for p in paths:
+                    if p is not None and p.exists():
+                        return p
+                return None
+
+            # 探索対象ディレクトリ: 指定 config_dir（既定は configs/api/）
+            primary_dir = self.config_dir
+
+            # API設定ファイル読み込み（configs/api/ のみ）
+            api_config_path = first_existing(
+                primary_dir / "api_config.yaml",
+            )
+            if api_config_path:
                 with open(api_config_path, 'r', encoding='utf-8') as f:
                     api_config = yaml.safe_load(f)
-                    self._update_from_dict(api_config)
+                    if api_config:
+                        self._update_from_dict(api_config)
 
-            # モデル設定ファイル読み込み
-            model_config_path = self.config_dir / "model_config.yaml"
-            if model_config_path.exists():
+            # モデル設定ファイル読み込み（configs/api/ のみ）
+            model_config_path = first_existing(
+                primary_dir / "model_config.yaml",
+            )
+            if model_config_path:
                 with open(model_config_path, 'r', encoding='utf-8') as f:
                     model_config = yaml.safe_load(f)
-                    if 'models' in model_config:
+                    if model_config and 'models' in model_config:
                         self.model_configs = model_config['models']
 
         except Exception as e:
@@ -169,6 +186,16 @@ class Settings(BaseSettings):
     @property
     def log_config_path(self) -> Path:
         """ログ設定ファイルパス"""
+        # ログ設定は API 用の dictConfig を期待
+        # 優先: configs/api/logging_config.yaml → 最後: configs/logging_config.yaml（互換性がある場合のみ）
+        candidates = [
+            self.config_dir / "logging_config.yaml",
+            Path("configs") / "logging_config.yaml",
+        ]
+        for p in candidates:
+            if p.exists():
+                return p
+        # 既定値（存在しない場合でもパスを返す）
         return self.config_dir / "logging_config.yaml"
 
     def get_model_config(self, model_name: str) -> Optional[Dict[str, Any]]:

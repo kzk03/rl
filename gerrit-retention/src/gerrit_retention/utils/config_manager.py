@@ -3,6 +3,12 @@
 
 YAML設定ファイルの読み込み、環境変数の管理、設定の検証を行います。
 環境別設定管理と設定変更影響分析機能を提供します。
+
+ポリシー:
+- 本ユーティリティはリポジトリ横断の環境/パイプライン設定を対象とし、
+    既定の探索先は `configs/` 配下（例: `configs/gerrit_config.yaml`, `configs/development.yaml`）。
+- `config/` はAPI専用のレガシー/互換ディレクトリであり、本ユーティリティの探索対象ではありません。
+    誤って `config/` を指定した場合は警告を出します（読み込みは行いません）。
 """
 
 import hashlib
@@ -14,8 +20,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
-from gerrit_retention.utils.logger import get_logger
 from omegaconf import DictConfig, OmegaConf
+
+from gerrit_retention.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -61,7 +68,27 @@ class ConfigManager:
             "rl_environment.reward_weights", "ppo_agent.learning_rates"
         }
         
+        # レガシーAPI用ディレクトリ（config/）が誤指定されていないかの注意喚起
+        self._warn_if_legacy_api_dir()
+
         self._load_config()
+
+    def _warn_if_legacy_api_dir(self) -> None:
+        """`config/`（API 専用）を誤って指定した場合に警告する"""
+        if not self.config_path:
+            return
+        try:
+            p = Path(self.config_path)
+        except Exception:
+            return
+        # `config` ディレクトリ配下、あるいはそのファイルを指している場合に警告
+        parts = [part.lower() for part in p.parts]
+        if "config" in parts and "configs" not in parts:
+            logger.warning(
+                "ConfigManager は `configs/` 配下の環境設定を対象とします。"
+                " 指定されたパスは `config/`（API 用）配下の可能性があります: %s",
+                str(self.config_path)
+            )
     
     def _load_config(self) -> None:
         """設定ファイルを読み込み（環境別設定対応）"""
@@ -97,7 +124,19 @@ class ConfigManager:
     def _get_config_file_paths(self) -> List[str]:
         """環境別設定ファイルパスを取得"""
         if self.config_path:
-            return [str(self.config_path)]
+            # 単一のファイルパスが指定された場合のみそのまま使用。
+            # ディレクトリが指定された場合は `configs/` 相当の想定で標準ファイル名を探索。
+            p = Path(self.config_path)
+            if p.is_file():
+                return [str(p)]
+            if p.is_dir():
+                return [
+                    str(p / "gerrit_config.yaml"),
+                    str(p / f"{self.environment}.yaml"),
+                    str(p / "local.yaml"),
+                ]
+            # 存在しない場合はそのまま返す（呼び出し側の意図を尊重）
+            return [str(p)]
         
         # 環境別設定ファイルの優先順位
         config_files = [

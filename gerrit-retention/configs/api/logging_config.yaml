@@ -1,4 +1,6 @@
-# ログ設定ファイル
+# ログ設定ファイル（dictConfig 形式）
+# API はこのファイル（configs/api/logging_config.yaml）を参照します。
+# 無い場合のみ `configs/logging_config.yaml` を参照することがあります。
 version: 1
 disable_existing_loggers: false
 
