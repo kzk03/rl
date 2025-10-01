@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
+from gerrit_retention.rl_environment import BinaryActionWrapper
 from gerrit_retention.rl_environment.irl_reward_wrapper import IRLRewardWrapper
 from gerrit_retention.rl_environment.ppo_agent import PPOAgent, PPOConfig
 from gerrit_retention.rl_environment.review_env import ReviewAcceptanceEnvironment
@@ -177,6 +178,19 @@ class StablePPOAgent:
 def main():
     """安定版PPO訓練メイン関数"""
     print('=== 🚀 安定版gerrit-retention強化学習システム実行 ===')
+    # 追加: CLI フラグで IRL 報酬や各種パラメータを制御
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--use-irl-reward', action='store_true', help='IRL 報酬ラッパーを利用する')
+    ap.add_argument('--irl-model-path', type=str, default=None, help='学習済み IRL モデル (.pth) のパス')
+    ap.add_argument('--irl-reward-mode', type=str, choices=['replace', 'blend'], default='blend', help='IRL 報酬の適用方法')
+    ap.add_argument('--irl-reward-alpha', type=float, default=0.7, help='blend のときの係数 (0..1)')
+    ap.add_argument('--engagement-bonus-weight', type=float, default=0.0, help='受諾行動時のボーナス係数')
+    ap.add_argument('--accept-action-id', type=int, default=1, help='受諾行動ID')
+    ap.add_argument('--train-episodes', type=int, default=400, help='訓練エピソード数')
+    ap.add_argument('--eval-episodes', type=int, default=100, help='評価エピソード数')
+    ap.add_argument('--binary-actions', action='store_true', help='方策の行動空間を2クラス（非受諾/受諾）にする')
+    args = ap.parse_args()
     
     # 安定版設定
     config = PPOConfig(
@@ -203,13 +217,13 @@ def main():
     'use_random_initial_queue': False,
     'enable_random_new_reviews': False,
         # 追加オプション
-        'use_irl_reward': False,            # True にすると IRL 報酬を使用
-        'irl_reward_mode': 'blend',         # 'replace' or 'blend'
-        'irl_reward_alpha': 0.7,            # blend 係数
-        'irl_model_path': None,             # 既存 IRL モデルのパス（任意）
+        'use_irl_reward': bool(args.use_irl_reward),            # True にすると IRL 報酬を使用
+        'irl_reward_mode': str(args.irl_reward_mode),           # 'replace' or 'blend'
+        'irl_reward_alpha': float(args.irl_reward_alpha),       # blend 係数
+        'irl_model_path': args.irl_model_path,                  # 既存 IRL モデルのパス（任意）
     # 開発者が「レビューしてくれる（受諾）」ことへのボーナス
-    'engagement_bonus_weight': 0.0,     # >0 にすると受諾時にボーナス加算
-    'accept_action_id': 1,              # 受諾行動ID（環境の定義に合わせる）
+    'engagement_bonus_weight': float(args.engagement_bonus_weight),  # >0 にすると受諾時にボーナス加算
+    'accept_action_id': int(args.accept_action_id),                   # 受諾行動ID（環境の定義に合わせる）
     }
     
     print(f'📊 安定版訓練設定:')
@@ -252,6 +266,11 @@ def main():
             engagement_bonus_weight=float(env_config.get('engagement_bonus_weight', 0.0)),
             accept_action_id=int(env_config.get('accept_action_id', 1)),
         )
+
+    # 2アクション方策モード（非受諾/受諾）
+    binary_mode = bool(args.binary_actions)
+    if binary_mode:
+        env = BinaryActionWrapper(env)
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
     
@@ -266,16 +285,20 @@ def main():
     episode_rewards = []
     episode_lengths = []
     update_count = 0
-    action_counts = {'reject': 0, 'accept': 0, 'wait': 0}
-    action_names = ['reject', 'accept', 'wait']
+    if binary_mode:
+        action_names = ['reject', 'accept']
+        action_counts = {k: 0 for k in action_names}
+    else:
+        action_names = ['reject', 'accept', 'wait']
+        action_counts = {k: 0 for k in action_names}
     
     print(f'\\n=== 🎯 安定版PPO訓練開始 ===')
     start_time = time.time()
     best_avg_reward = float('-inf')
     
     # 訓練/評価エピソード数（擬似データ分割: シードを変えて別分布を模擬）
-    train_episodes = 400
-    eval_episodes = 100
+    train_episodes = int(args.train_episodes)
+    eval_episodes = int(args.eval_episodes)
     train_seed = 42
     eval_seed = 4242
     total_episodes = train_episodes
@@ -337,10 +360,10 @@ def main():
                 total_actions = sum(action_counts.values())
                 if total_actions > 0:
                     action_dist = {k: v/total_actions*100 for k, v in action_counts.items()}
-                    reject_pct = action_dist['reject']
-                    accept_pct = action_dist['accept']
-                    wait_pct = action_dist['wait']
-                    print(f'  行動分布: Reject {reject_pct:.1f}%, Accept {accept_pct:.1f}%, Wait {wait_pct:.1f}%')
+                    if binary_mode:
+                        print(f"  行動分布: Non-accept(reject) {action_dist['reject']:.1f}%, Accept {action_dist['accept']:.1f}%")
+                    else:
+                        print(f"  行動分布: Reject {action_dist['reject']:.1f}%, Accept {action_dist['accept']:.1f}%, Wait {action_dist['wait']:.1f}%")
                 
                 if avg_reward > best_avg_reward:
                     best_avg_reward = avg_reward
@@ -380,7 +403,7 @@ def main():
     # 最終行動分析
     total_actions = sum(action_counts.values())
     if total_actions > 0:
-        print(f'\\n🎯 最終行動分析:')
+        print(f'\n🎯 最終行動分析:')
         for action, count in action_counts.items():
             percentage = count / total_actions * 100
             print(f'{action}: {count:,}回 ({percentage:.1f}%)')
@@ -473,6 +496,20 @@ def main():
         json.dump(results, f, indent=2)
     
     print(f'\\n💾 結果保存: outputs/stable_rl_results_{timestamp}.json')
+    # 学習済みポリシー保存（後段のリプレイ一致率評価用）
+    try:
+        os.makedirs('outputs/policies', exist_ok=True)
+        policy_path = f'outputs/policies/stable_ppo_policy_{timestamp}.pt'
+        torch.save({
+            'state_dict': agent.policy_net.state_dict(),
+            'obs_dim': int(obs_dim),
+            'action_dim': int(action_dim),
+            'arch': [obs_dim, 128, 64, action_dim],
+            'note': 'Sequential(Linear-ReLU-Linear-ReLU-Linear-Softmax)'
+        }, policy_path)
+        print(f'💾 ポリシー保存: {policy_path}')
+    except Exception as e:
+        print(f'⚠️ ポリシー保存に失敗しました（続行）: {e}')
     print(f'\\n✅ 安定版gerrit-retention強化学習システム実行完了!')
     print(f'エラーなしで{completed_episodes}エピソード完了しました！')
     

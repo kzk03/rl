@@ -5,6 +5,7 @@
 レビュー受諾環境、報酬計算システム、PPOエージェントを含む。
 """
 
+from .binary_action_wrapper import BinaryActionWrapper
 from .irl_reward_wrapper import IRLRewardWrapper
 from .ppo_agent import (
     PolicyNetwork,
@@ -27,6 +28,7 @@ __all__ = [
     'RewardComponents',
     'ActionContext',
     'IRLRewardWrapper',
+    'BinaryActionWrapper',
     
     # PPOエージェント
     'PPOAgent',
