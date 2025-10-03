@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
 from gerrit_retention.rl_environment.multi_reviewer_assignment_env import (
     AssignmentTask,
@@ -64,7 +66,7 @@ def train(env: MultiReviewerAssignmentEnv, episodes: int = 400, lr: float = 1e-3
     policy = SmallPolicy(obs_dim, act_dim)
     optim = torch.optim.Adam(policy.parameters(), lr=lr)
     log: List[Dict[str, Any]] = []
-    for ep in range(episodes):
+    for ep in tqdm(range(episodes), desc='train', leave=False):
         obs, _ = env.reset()
         done = False
         ep_loss = 0.0
@@ -93,15 +95,23 @@ def evaluate(env: MultiReviewerAssignmentEnv, policy: nn.Module) -> Dict[str, An
     done = False
     matches = 0
     total = 0
-    while not done:
-        obs_t = torch.from_numpy(obs).float().unsqueeze(0)
-        logits = policy(obs_t)
-        action = int(torch.argmax(logits, dim=-1).item())
-        next_obs, reward, terminated, truncated, info = env.step(action)
-        total += 1
-        matches += int(reward >= 1.0)  # match_gt reward
-        obs = next_obs
-        done = bool(terminated or truncated)
+    total_expected = len(getattr(env, 'tasks', [])) or None
+    pbar = tqdm(total=total_expected, desc='eval', leave=False) if total_expected else None
+    try:
+        while not done:
+            obs_t = torch.from_numpy(obs).float().unsqueeze(0)
+            logits = policy(obs_t)
+            action = int(torch.argmax(logits, dim=-1).item())
+            next_obs, reward, terminated, truncated, info = env.step(action)
+            total += 1
+            matches += int(reward >= 1.0)  # match_gt reward
+            obs = next_obs
+            done = bool(terminated or truncated)
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        if pbar is not None:
+            pbar.close()
     return {'action_match_rate': (matches / max(1, total)), 'steps': total}
 
 
@@ -111,13 +121,34 @@ def main():
     ap.add_argument('--eval-tasks', type=str, required=True)
     ap.add_argument('--outdir', type=str, default='outputs/task_assign')
     ap.add_argument('--episodes', type=int, default=600)
+    ap.add_argument('--irl-model', type=str, default=None, help='Path to IRL model JSON to use as reward (sets reward_mode=irl_softmax).')
     args = ap.parse_args()
 
     train_tasks, feat_order = _read_tasks(Path(args.train_tasks))
     eval_tasks, _ = _read_tasks(Path(args.eval_tasks))
 
-    train_env = MultiReviewerAssignmentEnv(train_tasks, feat_order, config={'max_candidates': 8, 'use_action_mask': True, 'reward_mode': 'match_gt'})
-    eval_env = MultiReviewerAssignmentEnv(eval_tasks, feat_order, config={'max_candidates': 8, 'use_action_mask': True, 'reward_mode': 'match_gt'})
+    irl_model = None
+    reward_mode = 'match_gt'
+    if args.irl_model:
+        try:
+            irl_obj = json.loads(Path(args.irl_model).read_text(encoding='utf-8'))
+            # sanity: align feature order if provided in model
+            if irl_obj.get('feature_order') and irl_obj['feature_order'] != feat_order:
+                # best-effort reorder: intersect keys
+                common = [f for f in irl_obj['feature_order'] if f in feat_order]
+                if common:
+                    feat_order = common
+            irl_model = {'theta': np.array(irl_obj.get('theta'), dtype=np.float64), 'scaler': irl_obj.get('scaler')}
+            reward_mode = 'irl_softmax'
+        except Exception:
+            pass
+
+    env_cfg = {'max_candidates': 8, 'use_action_mask': True, 'reward_mode': reward_mode}
+    if irl_model is not None:
+        env_cfg['irl_model'] = irl_model
+
+    train_env = MultiReviewerAssignmentEnv(train_tasks, feat_order, config=env_cfg)
+    eval_env = MultiReviewerAssignmentEnv(eval_tasks, feat_order, config=env_cfg)
 
     res = train(train_env, episodes=int(args.episodes))
     policy = res['policy']
