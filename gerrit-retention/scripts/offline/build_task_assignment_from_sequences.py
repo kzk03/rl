@@ -120,6 +120,7 @@ def build_tasks_from_sequences(
     seed: int | None = 42,
     candidate_sampling: str = 'random',  # 'random' | 'time-local'
     candidate_window_days: int = 30,
+    shuffle_candidates: bool = True,
 ) -> Dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     cutoff = _parse_iso(cutoff_iso)
@@ -161,6 +162,22 @@ def build_tasks_from_sequences(
         return latest
     rng = random.Random(seed)
 
+    # Stable per-task shuffler based on a deterministic hash so that
+    # shuffling is identical across runs regardless of input ordering.
+    import hashlib
+    def _stable_perm_indices(n: int, context_parts: List[Any]) -> List[int]:
+        """Return a deterministic permutation of range(n) based on context_parts and global seed."""
+        idxs = list(range(n))
+        if n <= 1:
+            return idxs
+        joined = '\u0001'.join(str(k) for k in context_parts)
+        base = f"{joined}|seed={seed if seed is not None else 'none'}".encode('utf-8')
+        digest = hashlib.sha256(base).digest()
+        local_seed = int.from_bytes(digest[:8], byteorder='big', signed=False)
+        local_rng = random.Random(local_seed)
+        local_rng.shuffle(idxs)
+        return idxs
+
     def _gen(phase: str, pred) -> Tuple[str, int]:
         outp = out_dir / f"tasks_{phase}.jsonl"
         n = 0
@@ -177,7 +194,7 @@ def build_tasks_from_sequences(
                         continue
                     a = int(tr.get('action', 2))
                     state = tr.get('state', {}) or {}
-                    # Build candidates
+                    # Build candidates (ensure GT is included but remove positional bias by shuffling later)
                     cands = [rid]
                     pool = [x for x in reviewer_ids if x and x != rid]
                     if candidate_sampling == 'time-local':
@@ -198,6 +215,16 @@ def build_tasks_from_sequences(
                         if len(cands) >= max_candidates:
                             break
                         cands.append(r)
+
+                    # Deduplicate (safety)
+                    seen = set()
+                    cands = [x for x in cands if not (x in seen or seen.add(x))]
+
+                    # Shuffle candidate order deterministically per task (reduce positional bias)
+                    if shuffle_candidates:
+                        context = [rid, when.isoformat()] + [str(x) for x in cands]
+                        perm = _stable_perm_indices(len(cands), context)
+                        cands = [cands[i] for i in perm]
 
                     # Build feature map per candidate using candidate's latest state before 'when' (fallback to source state)
                     cand_objs = []
@@ -229,6 +256,7 @@ def build_tasks_from_sequences(
         'seed': int(seed) if seed is not None else None,
         'candidate_sampling': str(candidate_sampling),
         'candidate_window_days': int(candidate_window_days),
+        'shuffle_candidates': bool(shuffle_candidates),
     }
     (out_dir / 'tasks_meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2))
     return meta
@@ -243,6 +271,7 @@ def main():
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--candidate-sampling', type=str, default='random', choices=['random', 'time-local'])
     ap.add_argument('--candidate-window-days', type=int, default=30)
+    ap.add_argument('--no-shuffle-candidates', action='store_true', help='Disable deterministic candidate shuffling (reduces positional bias by default).')
     args = ap.parse_args()
     meta = build_tasks_from_sequences(
         Path(args.input),
@@ -252,6 +281,7 @@ def main():
         seed=int(args.seed),
         candidate_sampling=str(args.candidate_sampling),
         candidate_window_days=int(args.candidate_window_days),
+        shuffle_candidates=not bool(args.no_shuffle_candidates),
     )
     print(json.dumps(meta, ensure_ascii=False, indent=2))
     return 0
