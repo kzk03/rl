@@ -59,7 +59,7 @@ def _filter_by_window(tasks: List[AssignmentTask], cutoff: datetime, window: str
 def evaluate_window(tasks: List[AssignmentTask], feat_order: List[str], policy_path: Path) -> Dict[str, Any]:
     total_steps = len(tasks)
     if total_steps == 0:
-        return {'steps': 0, 'action_match_rate': None}
+        return {'steps': 0, 'action_match_rate': None, 'index0_positive_rate': None, 'avg_candidates': None, 'random_top1_baseline': None}
     env = MultiReviewerAssignmentEnv(tasks, feat_order, config={'max_candidates': 8, 'use_action_mask': True, 'reward_mode': 'match_gt'})
     # policy architecture must match train script
     obs_dim = env.observation_space.shape[0]
@@ -79,17 +79,38 @@ def evaluate_window(tasks: List[AssignmentTask], feat_order: List[str], policy_p
     done = False
     total = 0
     match = 0
+    # auditing stats for positional bias
+    idx0_pos = 0
+    cand_counts = []
+
     with tqdm(total=total_steps, desc='eval', leave=False) as pbar:
         while not done:
             x = torch.from_numpy(obs).float().unsqueeze(0)
             logits = policy(x)
             action = int(torch.argmax(logits, dim=-1).item())
+            # capture before stepping: current candidate list length and index0-positive
+            cur_task = env._current_task()  # using internal accessor is acceptable here
+            k = len(cur_task.candidates)
+            cand_counts.append(k)
+            if cur_task.positive_reviewer_ids:
+                idx0 = cur_task.candidates[0].reviewer_id if k > 0 else None
+                if idx0 is not None and idx0 in set(cur_task.positive_reviewer_ids):
+                    idx0_pos += 1
+
             obs, reward, terminated, truncated, _ = env.step(action)
             total += 1
             match += int(reward >= 1.0)
             done = bool(terminated or truncated)
             pbar.update(1)
-    return {'steps': total, 'action_match_rate': (match / max(1, total))}
+    avg_k = float(np.mean(cand_counts)) if cand_counts else None
+    rand_top1 = float(np.mean([1.0 / c for c in cand_counts])) if cand_counts else None
+    return {
+        'steps': total,
+        'action_match_rate': (match / max(1, total)),
+        'index0_positive_rate': (idx0_pos / max(1, total)),
+        'avg_candidates': avg_k,
+        'random_top1_baseline': rand_top1,
+    }
 
 
 def main():

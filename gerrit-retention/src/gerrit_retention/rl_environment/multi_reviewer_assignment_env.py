@@ -168,8 +168,15 @@ class MultiReviewerAssignmentEnv(gym.Env):
             return 0.0
         x = np.array([float(feats.get(f, 0.0)) for f in self.feature_order], dtype=np.float32)
         if scaler is not None:
+            # Accept either a transformer with .transform or a dict with mean/scale
             try:
-                x = scaler.transform([x])[0]
+                if hasattr(scaler, 'transform'):
+                    x = scaler.transform([x])[0]
+                elif isinstance(scaler, dict):
+                    mean = np.array(scaler.get('mean'), dtype=np.float32) if 'mean' in scaler else None
+                    scale = np.array(scaler.get('scale'), dtype=np.float32) if 'scale' in scaler else None
+                    if mean is not None and scale is not None and mean.shape[0] == x.shape[0] and scale.shape[0] == x.shape[0]:
+                        x = (x - mean) / np.maximum(scale, 1e-8)
             except Exception:
                 pass
         x_ext = np.concatenate([x.astype(np.float64), np.array([1.0], dtype=np.float64)])  # intercept
