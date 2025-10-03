@@ -137,6 +137,7 @@ def build_offline_from_sequences(
     inject_wait_prob: float = 0.0,
     seed: int | None = 42,
     binary_actions: bool = False,
+    episode_group: str = 'none',  # 'none' | 'reviewer'
 ) -> Dict[str, Any]:
     input_path = Path(input_path)
     out_dir = Path(out_dir)
@@ -160,25 +161,54 @@ def build_offline_from_sequences(
         lines: List[str] = []
         samples = 0
         obs, _ = env.reset()
-        for ev in filter(lambda e: predicate(e.when), events):
-            setattr(env, 'review_queue', [ev.request])
-            state = env._get_observation()
-            a_raw = int(ev.action)
-            a = 0 if binary_actions and a_raw in (0, 2) else (1 if binary_actions and a_raw == 1 else a_raw)
-            next_obs, reward, terminated, truncated, info = env.step(a)
-            done = bool(terminated or truncated)
-            sample = {
-                'timestamp': ev.when.isoformat(),
-                'state': state.tolist(),
-                'action': int(a),
-                'reward': float(reward),
-                'next_state': next_obs.tolist(),
-                'done': done,
-            }
-            lines.append(json.dumps(sample, ensure_ascii=False))
-            samples += 1
-            if done:
-                obs, _ = env.reset()
+        grouped: List[_Event]
+        evs = list(filter(lambda e: predicate(e.when), events))
+        if episode_group == 'reviewer':
+            # reviewer_id の連続チャンクごとに1エピソードとして扱い、チャンク間のみ reset。
+            last_id: str | None = None
+            for ev in evs:
+                if last_id is None:
+                    last_id = ev.reviewer_id
+                if ev.reviewer_id != last_id:
+                    # エピソード境界として一度 reset
+                    obs, _ = env.reset()
+                    last_id = ev.reviewer_id
+                setattr(env, 'review_queue', [ev.request])
+                state = env._get_observation()
+                a_raw = int(ev.action)
+                a = 0 if binary_actions and a_raw in (0, 2) else (1 if binary_actions and a_raw == 1 else a_raw)
+                next_obs, reward, terminated, truncated, info = env.step(a)
+                done = False  # 連結のため内部 done はエピソード終了とみなさない
+                sample = {
+                    'timestamp': ev.when.isoformat(),
+                    'state': state.tolist(),
+                    'action': int(a),
+                    'reward': float(reward),
+                    'next_state': next_obs.tolist(),
+                    'done': done,
+                }
+                lines.append(json.dumps(sample, ensure_ascii=False))
+                samples += 1
+        else:
+            for ev in evs:
+                setattr(env, 'review_queue', [ev.request])
+                state = env._get_observation()
+                a_raw = int(ev.action)
+                a = 0 if binary_actions and a_raw in (0, 2) else (1 if binary_actions and a_raw == 1 else a_raw)
+                next_obs, reward, terminated, truncated, info = env.step(a)
+                done = bool(terminated or truncated)
+                sample = {
+                    'timestamp': ev.when.isoformat(),
+                    'state': state.tolist(),
+                    'action': int(a),
+                    'reward': float(reward),
+                    'next_state': next_obs.tolist(),
+                    'done': done,
+                }
+                lines.append(json.dumps(sample, ensure_ascii=False))
+                samples += 1
+                if done:
+                    obs, _ = env.reset()
         outp = out_dir / f'dataset_{phase}.jsonl'
         outp.write_text("\n".join(lines) + ("\n" if lines else ""))
         return str(outp), samples
@@ -196,6 +226,7 @@ def build_offline_from_sequences(
         'inject_wait_prob': float(inject_wait_prob),
         'seed': int(seed) if seed is not None else None,
         'binary_actions': bool(binary_actions),
+        'episode_group': str(episode_group),
     }
     (out_dir / 'offline_dataset_meta.json').write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     return meta
@@ -209,6 +240,7 @@ def main():
     ap.add_argument('--inject-wait-prob', type=float, default=0.0, help='各イベント前に確率的に wait(action=2) を注入')
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--binary-actions', action='store_true', help='action=2(wait) を 0(非受諾) に統合して 2 クラス化する')
+    ap.add_argument('--episode-group', type=str, default='none', choices=['none', 'reviewer'], help='エピソード束ね方: reviewer でレビュア連続チャンクを1エピソード化')
     args = ap.parse_args()
 
     meta = build_offline_from_sequences(
@@ -218,6 +250,7 @@ def main():
         inject_wait_prob=float(args.inject_wait_prob),
         seed=int(args.seed),
         binary_actions=bool(args.binary_actions),
+        episode_group=str(args.episode_group),
     )
     print(json.dumps(meta, indent=2, ensure_ascii=False))
     return 0

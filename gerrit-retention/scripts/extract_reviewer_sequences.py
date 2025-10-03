@@ -29,7 +29,26 @@ def parse_dt(ts: str):
     except: return None
 
 def load_changes(path: Path):
-    with path.open('r', encoding='utf-8') as f: return json.load(f)
+    """Load Gerrit changes.
+    Supports two formats:
+      1) Flat JSON list of change dicts
+      2) Top-level dict or list of dicts containing {'metadata':..., 'data': {project: [changes...]}}
+    Returns a flat list of change dicts.
+    """
+    obj = json.load(path.open('r', encoding='utf-8'))
+    # Case 1: already a flat list of changes
+    if isinstance(obj, list) and (len(obj) == 0 or isinstance(obj[0], dict) and 'created' in obj[0]):
+        return obj
+    # Case 2: unified container(s)
+    containers = obj if isinstance(obj, list) else [obj]
+    changes = []
+    for c in containers:
+        data = c.get('data') if isinstance(c, dict) else None
+        if isinstance(data, dict):
+            for _proj, lst in data.items():
+                if isinstance(lst, list):
+                    changes.extend(lst)
+    return changes
 
 def build_sequences(
     changes: List[Dict[str, Any]],
