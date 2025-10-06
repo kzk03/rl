@@ -168,3 +168,5 @@ wandb/
 # Gerrit specific
 gerrit_cache/
 *.gerrit_token
+
+docs/archive/
