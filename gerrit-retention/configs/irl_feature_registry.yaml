@@ -1,0 +1,72 @@
+# IRL Feature Registry (Phase1 incremental)
+# status: experimental -> active -> deprecated
+features:
+  - name: activity7
+    phase: 1
+    status: experimental
+    description: Count of reviewer transitions in past 7 days (exclusive of current timestamp)
+    requires: [transitions]
+    leakage_guard: timestamp_window
+    type: count
+    fallback: 0
+  - name: workload_sq
+    phase: 1
+    status: experimental
+    description: Square of workload feature to capture overload curvature
+    requires: [state.workload]
+    leakage_guard: none
+    type: numeric
+    derived_from: workload
+  - name: reviewer_tenure_days
+    phase: 1
+    status: experimental
+    description: Days since first seen transition for reviewer (capped at 2000)
+    requires: [transitions]
+    leakage_guard: historical_cutoff
+    type: duration
+    fallback: 0
+  - name: interaction_activity_gap
+    phase: 1
+    status: experimental
+    description: activity30 / (1 + gap_days) interaction emphasizing recent non-idle activity
+    requires: [state.activity30, state.gap_days]
+    leakage_guard: none
+    type: numeric
+    derived_from: [activity30, gap_days]
+  # Placeholders for later phases (not computed yet)
+  - name: backlog_open_reviews
+    phase: 1
+    status: experimental
+    description: Approx open reviews count (state.open_reviews if available else workload*activity30 heuristic)
+  - name: historical_accept_ratio
+    phase: 1
+    status: experimental
+    description: Accepted transitions / all transitions before timestamp (capped, min denom=3)
+  - name: avg_response_latency_hours
+    phase: 1
+    status: pending
+    description: Average hours from assignment to first response (log1p inverse recommended)
+  - name: owner_reviewer_past_assignments_180d
+    phase: 1
+    status: experimental
+    description: Past 180d assignments between owner and reviewer (requires owner id in sequence)
+  - name: path_tfidf_cosine_recent30
+    phase: 1
+    status: experimental
+    description: Improved TF-IDF cosine (dir1+dir2 tokens, normalized TF, 30d window)
+  - name: active_hour_match
+    phase: 1
+    status: experimental
+    description: 1 if current hour within top frequent active hours (last 30d) for reviewer
+  - name: path_jaccard_dir2_180d
+    phase: 2
+    status: experimental
+    description: Jaccard similarity of dir2 path segments between current change and reviewer history (<=180d)
+  - name: owner_reviewer_past_assignments_180d_log1p
+    phase: 2
+    status: experimental
+    description: log1p of past 180d assignments between owner and reviewer
+  - name: owner_reviewer_past_assignments_ratio_180d
+    phase: 2
+    status: experimental
+    description: Ratio (pair_count / total_reviewer_assignments_180d)

@@ -60,7 +60,7 @@ def _standardize(X_list: List[np.ndarray]) -> Tuple[List[np.ndarray], Dict[str, 
     out = [ (X - mean) / scale for X in X_list ]
     return out, {'mean': mean.tolist(), 'scale': scale.tolist()}
 
-def _fit_softmax(X_list: List[np.ndarray], y_list: List[np.ndarray], iters: int = 200, lr: float = 0.1, reg: float = 1e-4) -> np.ndarray:
+def _fit_softmax(X_list: List[np.ndarray], y_list: List[np.ndarray], iters: int = 200, lr: float = 0.1, reg: float = 1e-4, l1: float = 0.0) -> np.ndarray:
     # Linear utility with intercept: u = Wx + b; implement as theta = [w; b]
     D = X_list[0].shape[1]
     theta = np.zeros(D + 1, dtype=np.float64)
@@ -85,10 +85,13 @@ def _fit_softmax(X_list: List[np.ndarray], y_list: List[np.ndarray], iters: int 
             g += Xext.T @ (p - target)
         if n_tasks == 0:
             break
-        # L2 regularization on w (exclude intercept lightly)
-        reg_vec = np.concatenate([theta[:-1], np.array([0.0])])
-        g = g / n_tasks + reg * reg_vec
-        theta -= lr * g
+        # L2 regularization (exclude intercept) + L1 (subgradient sign) on weights only
+        reg_l2_vec = np.concatenate([theta[:-1], np.array([0.0])])
+        grad = g / n_tasks + reg * reg_l2_vec
+        if l1 > 0.0:
+            sign = np.sign(theta[:-1])
+            grad[:-1] += l1 * sign
+        theta -= lr * grad
     return theta
 
 def main():
@@ -98,6 +101,8 @@ def main():
     ap.add_argument('--iters', type=int, default=300)
     ap.add_argument('--lr', type=float, default=0.1)
     ap.add_argument('--reg', type=float, default=1e-4)
+    ap.add_argument('--l1', type=float, default=0.0, help='L1 regularization strength (excludes intercept).')
+    ap.add_argument('--temperature', type=float, default=1.0, help='Softmax temperature for downstream reward scaling.')
     args = ap.parse_args()
 
     tasks, feat_keys = _read_tasks(Path(args.train_tasks))
@@ -106,8 +111,14 @@ def main():
         print(json.dumps({'error': 'no tasks with positives'}, ensure_ascii=False))
         return 1
     Xs, scaler = _standardize(X_list)
-    theta = _fit_softmax(Xs, y_list, iters=int(args.iters), lr=float(args.lr), reg=float(args.reg))
-    out = {'theta': theta.tolist(), 'feature_order': feat_keys, 'scaler': scaler}
+    theta = _fit_softmax(Xs, y_list, iters=int(args.iters), lr=float(args.lr), reg=float(args.reg), l1=float(args.l1))
+    out = {
+        'theta': theta.tolist(),
+        'feature_order': feat_keys,
+        'scaler': scaler,
+        'temperature': float(args.temperature),
+        'l1': float(args.l1),
+    }
     outp = Path(args.out); outp.parent.mkdir(parents=True, exist_ok=True)
     outp.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({'out': str(outp), 'dims': len(theta)-1, 'tasks_used': len(Xs)}, ensure_ascii=False))

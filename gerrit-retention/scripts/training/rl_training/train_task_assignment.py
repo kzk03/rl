@@ -104,7 +104,11 @@ def evaluate(env: MultiReviewerAssignmentEnv, policy: nn.Module) -> Dict[str, An
             action = int(torch.argmax(logits, dim=-1).item())
             next_obs, reward, terminated, truncated, info = env.step(action)
             total += 1
-            matches += int(reward >= 1.0)  # match_gt reward
+            # Prefer explicit match flag if provided by env
+            if isinstance(info, dict) and info.get('is_match') is not None:
+                matches += int(bool(info.get('is_match')))
+            else:
+                matches += int(reward >= 1.0)
             obs = next_obs
             done = bool(terminated or truncated)
             if pbar is not None:
@@ -122,6 +126,10 @@ def main():
     ap.add_argument('--outdir', type=str, default='outputs/task_assign')
     ap.add_argument('--episodes', type=int, default=600)
     ap.add_argument('--irl-model', type=str, default=None, help='Path to IRL model JSON to use as reward (sets reward_mode=irl_softmax).')
+    ap.add_argument('--reward-mode', type=str, default=None, help='Override reward mode (match_gt, irl_softmax, irl_logprob, hybrid_match_irl, irl_entropy_bonus, accept_prob).')
+    ap.add_argument('--entropy-coef', type=float, default=0.0, help='Entropy bonus coefficient (for irl_entropy_bonus).')
+    ap.add_argument('--hybrid-alpha', type=float, default=0.5, help='Alpha weight for hybrid_match_irl (match component).')
+    ap.add_argument('--temperature', type=float, default=None, help='Override temperature for IRL softmax/logprob/hybrid/entropy modes.')
     args = ap.parse_args()
 
     train_tasks, feat_order = _read_tasks(Path(args.train_tasks))
@@ -139,13 +147,30 @@ def main():
                 if common:
                     feat_order = common
             irl_model = {'theta': np.array(irl_obj.get('theta'), dtype=np.float64), 'scaler': irl_obj.get('scaler')}
-            reward_mode = 'irl_softmax'
+            # set temperature if present
+            temp = irl_obj.get('temperature')
+            if temp is not None:
+                irl_model['temperature'] = float(temp)
+            if args.reward_mode:
+                reward_mode = args.reward_mode
+            else:
+                reward_mode = 'irl_softmax'
         except Exception:
             pass
 
     env_cfg = {'max_candidates': 8, 'use_action_mask': True, 'reward_mode': reward_mode}
     if irl_model is not None:
         env_cfg['irl_model'] = irl_model
+    # additional IRL reward modifiers
+    if reward_mode in ('irl_softmax','irl_logprob','hybrid_match_irl','irl_entropy_bonus'):
+        if args.temperature is not None:
+            env_cfg['temperature'] = float(args.temperature)
+        else:
+            env_cfg['temperature'] = irl_model.get('temperature', 1.0) if irl_model else 1.0
+    if reward_mode == 'irl_entropy_bonus':
+        env_cfg['entropy_coef'] = float(args.entropy_coef)
+    if reward_mode == 'hybrid_match_irl':
+        env_cfg['hybrid_alpha'] = float(args.hybrid_alpha)
 
     train_env = MultiReviewerAssignmentEnv(train_tasks, feat_order, config=env_cfg)
     eval_env = MultiReviewerAssignmentEnv(eval_tasks, feat_order, config=env_cfg)

@@ -54,6 +54,9 @@ class MultiReviewerAssignmentEnv(gym.Env):
         self.use_action_mask = bool(self.config.get("use_action_mask", True))
         self.invalid_action_penalty = float(self.config.get("invalid_action_penalty", -0.1))
         self.reward_mode = str(self.config.get("reward_mode", "match_gt"))
+        self.temperature = float(self.config.get("temperature", 1.0))  # for IRL softmax scaling
+        self.entropy_coef = float(self.config.get("entropy_coef", 0.0))  # optional entropy bonus
+        self.hybrid_alpha = float(self.config.get("hybrid_alpha", 0.5))  # weight for hybrid_match_irl
         # IRL scorer: expects dict with 'theta' (np.ndarray [D+1]) and optional 'scaler' (sklearn StandardScaler-like)
         self.irl_model = self.config.get("irl_model")
         # Continuity bonus for same reviewer being repeatedly selected across steps (decay by gap)
@@ -98,18 +101,39 @@ class MultiReviewerAssignmentEnv(gym.Env):
         else:
             chosen = cur.candidates[action]
             info["chosen_reviewer_id"] = chosen.reviewer_id
+            # Ground-truth match flag (used for evaluation independently of reward mode)
+            pos_set = set(cur.positive_reviewer_ids or [])
+            is_match = chosen.reviewer_id in pos_set
+            info["is_match"] = bool(is_match)
             if self.reward_mode == "match_gt":
-                reward = 1.0 if chosen.reviewer_id in set(cur.positive_reviewer_ids or []) else 0.0
-            elif self.reward_mode == "irl_softmax":
-                # Use IRL utility difference vs. candidate set softmax prob as reward signal
-                # Optional: baseline subtract mean utility over valid candidates for variance reduction
+                reward = 1.0 if is_match else 0.0
+            elif self.reward_mode in ("irl_softmax", "irl_logprob", "hybrid_match_irl", "irl_entropy_bonus"):
+                # Utilities
                 utils = [self._irl_utility(c.features) for c in cur.candidates[:cand_count]]
-                # softmax prob for chosen
-                maxu = float(np.max(utils)) if utils else 0.0
-                exps = [float(np.exp(u - maxu)) for u in utils]
+                if not utils:
+                    utils = [0.0]
+                temp = max(1e-6, self.temperature)
+                scaled = [(u / temp) for u in utils]
+                maxu = float(np.max(scaled))
+                exps = [float(np.exp(u - maxu)) for u in scaled]
                 denom = max(1e-9, float(sum(exps)))
-                p = exps[action] / denom if action < len(exps) else 0.0
-                reward = float(p)
+                probs = [e / denom for e in exps]
+                p = probs[action] if action < len(probs) else 0.0
+                logp = float(np.log(max(p, 1e-9)))
+                if self.reward_mode == "irl_softmax":
+                    reward = float(p)
+                elif self.reward_mode == "irl_logprob":
+                    reward = logp
+                elif self.reward_mode == "hybrid_match_irl":
+                    base = 1.0 if is_match else 0.0
+                    reward = self.hybrid_alpha * base + (1.0 - self.hybrid_alpha) * p
+                elif self.reward_mode == "irl_entropy_bonus":
+                    entropy = -sum(q * np.log(max(q, 1e-9)) for q in probs)
+                    reward = float(p + self.entropy_coef * entropy)
+                # Attach debug info
+                info["irl_p"] = p
+                info["irl_logp"] = logp
+                info["irl_entropy"] = float(-sum(q * np.log(max(q, 1e-9)) for q in probs))
             elif self.reward_mode == "accept_prob":
                 # Use logistic(sigmoid) of linear utility as acceptance probability
                 u = self._irl_utility(chosen.features)
