@@ -170,3 +170,5 @@ gerrit_cache/
 *.gerrit_token
 
 docs/archive/
+
+docs/output/

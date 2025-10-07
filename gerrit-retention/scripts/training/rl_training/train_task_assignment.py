@@ -125,6 +125,7 @@ def main():
     ap.add_argument('--eval-tasks', type=str, required=True)
     ap.add_argument('--outdir', type=str, default='outputs/task_assign')
     ap.add_argument('--episodes', type=int, default=600)
+    ap.add_argument('--max-candidates', type=int, default=8, help='Number of candidate slots exposed to the policy/env.')
     ap.add_argument('--irl-model', type=str, default=None, help='Path to IRL model JSON to use as reward (sets reward_mode=irl_softmax).')
     ap.add_argument('--reward-mode', type=str, default=None, help='Override reward mode (match_gt, irl_softmax, irl_logprob, hybrid_match_irl, irl_entropy_bonus, accept_prob).')
     ap.add_argument('--entropy-coef', type=float, default=0.0, help='Entropy bonus coefficient (for irl_entropy_bonus).')
@@ -158,7 +159,7 @@ def main():
         except Exception:
             pass
 
-    env_cfg = {'max_candidates': 8, 'use_action_mask': True, 'reward_mode': reward_mode}
+    env_cfg = {'max_candidates': int(args.max_candidates), 'use_action_mask': True, 'reward_mode': reward_mode}
     if irl_model is not None:
         env_cfg['irl_model'] = irl_model
     # additional IRL reward modifiers
