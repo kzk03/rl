@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -46,17 +47,88 @@ def _to_dt(ts: str) -> datetime:
         return datetime.fromisoformat(ts)
 
 
+_WINDOW_RE = re.compile(r'^(?P<start>[+-]?\d+)?(?P<start_unit>[mdy])?(?:-(?P<end>[+-]?\d+)(?P<end_unit>[mdy]))?$')
+
+
+def _parse_window_spec(spec: str) -> Tuple[float, str, float, str]:
+    """Parse window spec.
+
+    Formats:
+      - "train" special handled elsewhere.
+      - "6m" => start=0m, end=6m.
+      - "3m-6m" => start=3m, end=6m.
+    Units: m (30 days), d, y (365 days).
+    """
+    if spec == 'train':
+        return (0.0, 'd', 0.0, 'd')
+    m = _WINDOW_RE.match(spec)
+    if not m:
+        raise ValueError(f'Invalid window spec: {spec}')
+    start = m.group('start')
+    start_unit = m.group('start_unit') or 'm'
+    end = m.group('end')
+    end_unit = m.group('end_unit')
+    if start is None and end is None:
+        raise ValueError(f'Window spec missing range: {spec}')
+    if end is None:
+        # treat like cumulative end
+        end = start
+        end_unit = start_unit
+        start = '0'
+        start_unit = end_unit
+    if start is None:
+        start = '0'
+    if start_unit is None:
+        start_unit = end_unit or 'm'
+    if end_unit is None:
+        end_unit = start_unit
+    start_val = float(start)
+    end_val = float(end)
+    if _window_delta(start_val, start_unit) >= _window_delta(end_val, end_unit):
+        raise ValueError(f'Window spec start must be before end: {spec}')
+    return (start_val, start_unit, end_val, end_unit)
+
+
+def _window_delta(value: float, unit: str) -> timedelta:
+    factor = {'d': 1, 'm': 30, 'y': 365}.get(unit, 30)
+    return timedelta(days=value * factor)
+
+
 def _filter_by_window(tasks: List[AssignmentTask], cutoff: datetime, window: str) -> List[AssignmentTask]:
     if window == 'train':
         return [t for t in tasks if t.timestamp and _to_dt(t.timestamp) <= cutoff]
-    # e.g., '1m','3m','6m','12m'
-    num = int(window[:-1]); unit = window[-1]
-    delta = {'m': 30, 'd': 1, 'y': 365}.get(unit, 30)
-    end = cutoff + timedelta(days=num * delta)
-    return [t for t in tasks if t.timestamp and cutoff < _to_dt(t.timestamp) <= end]
+    start_val, start_unit, end_val, end_unit = _parse_window_spec(window)
+    start_dt = cutoff + _window_delta(start_val, start_unit)
+    end_dt = cutoff + _window_delta(end_val, end_unit)
+    return [t for t in tasks if t.timestamp and start_dt < _to_dt(t.timestamp) <= end_dt]
 
 
-def evaluate_window(tasks: List[AssignmentTask], feat_order: List[str], policy_path: Path, reward_mode: str = 'match_gt', irl_model: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _prepare_feature_array(feats: Dict[str, float], order: List[str]) -> np.ndarray:
+    return np.array([float(feats.get(f, 0.0)) for f in order], dtype=np.float64)
+
+
+def _apply_scaler(x: np.ndarray, scaler: Optional[Dict[str, Any]]) -> np.ndarray:
+    if not scaler:
+        return x
+    mean = scaler.get('mean') if isinstance(scaler, dict) else None
+    scale = scaler.get('scale') if isinstance(scaler, dict) else None
+    if mean is not None and scale is not None:
+        mean_arr = np.asarray(mean, dtype=np.float64)
+        scale_arr = np.asarray(scale, dtype=np.float64)
+        if mean_arr.shape == x.shape:
+            return (x - mean_arr) / np.maximum(scale_arr, 1e-8)
+    return x
+
+
+def evaluate_window_policy(
+    tasks: List[AssignmentTask],
+    feat_order: List[str],
+    policy_path: Path,
+    max_candidates: int = 8,
+    reward_mode: str = 'match_gt',
+    irl_model: Optional[Dict[str, Any]] = None,
+    irl_temperature: Optional[float] = None,
+) -> Dict[str, Any]:
     total_steps = len(tasks)
     if total_steps == 0:
         return {
@@ -71,20 +143,14 @@ def evaluate_window(tasks: List[AssignmentTask], feat_order: List[str], policy_p
             'mAP': None,
             'ECE': None,
         }
-    cfg = {'max_candidates': 8, 'use_action_mask': True, 'reward_mode': reward_mode}
-    # IRL related config (temperature / entropy / hybrid) will be attached by caller via irl_model metadata or CLI
+    cfg = {'max_candidates': int(max_candidates), 'use_action_mask': True, 'reward_mode': reward_mode}
     if irl_model is not None:
-        # Pop out helper keys that are environment-level (temperature) vs model parameters
-        temperature = irl_model.pop('_temperature', None)
-        if temperature is not None:
-            cfg['temperature'] = float(temperature)
-        entropy_coef = irl_model.pop('_entropy_coef', None)
-        if entropy_coef is not None:
-            cfg['entropy_coef'] = float(entropy_coef)
-        hybrid_alpha = irl_model.pop('_hybrid_alpha', None)
-        if hybrid_alpha is not None:
-            cfg['hybrid_alpha'] = float(hybrid_alpha)
-        cfg['irl_model'] = irl_model
+        cfg['irl_model'] = {
+            'theta': irl_model.get('theta'),
+            'scaler': irl_model.get('scaler'),
+        }
+        if reward_mode in ('irl_softmax', 'irl_logprob', 'hybrid_match_irl', 'irl_entropy_bonus'):
+            cfg['temperature'] = float(irl_temperature if irl_temperature is not None else 1.0)
     env = MultiReviewerAssignmentEnv(tasks, feat_order, config=cfg)
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.n
@@ -206,12 +272,141 @@ def evaluate_window(tasks: List[AssignmentTask], feat_order: List[str], policy_p
     }
 
 
+def evaluate_window_irl(
+    tasks: List[AssignmentTask],
+    feat_order: List[str],
+    irl_model: Dict[str, Any],
+    temperature: float = 1.0,
+) -> Dict[str, Any]:
+    total = 0
+    top_matches = 0
+    idx0_pos = 0
+    cand_counts: List[int] = []
+    top3_hits = 0
+    top5_hits = 0
+    ap_list: List[float] = []
+    confs: List[float] = []
+    corrects: List[int] = []
+
+    theta = np.asarray(irl_model.get('theta'), dtype=np.float64)
+    scaler = irl_model.get('scaler')
+    if theta is None or theta.size == 0:
+        return {
+            'steps': 0,
+            'action_match_rate': None,
+            'index0_positive_rate': None,
+            'avg_candidates': None,
+            'random_top1_baseline': None,
+            'avg_reward': None,
+            'top3_hit_rate': None,
+            'top5_hit_rate': None,
+            'mAP': None,
+            'ECE': None,
+        }
+
+    bias = theta[-1]
+    weights = theta[:-1]
+    temp = max(1e-6, float(temperature))
+
+    for task in tasks:
+        candidates = task.candidates or []
+        k = len(candidates)
+        if k == 0:
+            continue
+        cand_counts.append(k)
+        feats_arr = []
+        for cand in candidates:
+            x = _prepare_feature_array(cand.features or {}, feat_order)
+            x = _apply_scaler(x, scaler)
+            feats_arr.append(x)
+        util = np.dot(np.vstack(feats_arr), weights) + bias
+        util = util / temp
+        util = util - np.max(util)
+        expu = np.exp(util)
+        probs = expu / np.maximum(expu.sum(), 1e-12)
+        top_idx = int(np.argmax(probs))
+        pos_set = set(task.positive_reviewer_ids or [])
+        cand_ids = [c.reviewer_id for c in candidates]
+
+        if cand_ids and cand_ids[0] in pos_set:
+            idx0_pos += 1
+
+        top_matches += int(cand_ids[top_idx] in pos_set)
+        total += 1
+
+        sorted_idx = np.argsort(-probs)
+        pos_indices = [i for i, rid in enumerate(cand_ids) if rid in pos_set]
+        if pos_indices:
+            if any(i in sorted_idx[:min(3, k)] for i in pos_indices):
+                top3_hits += 1
+            if any(i in sorted_idx[:min(5, k)] for i in pos_indices):
+                top5_hits += 1
+            hits = 0
+            prec_sum = 0.0
+            for rank, idx in enumerate(sorted_idx, start=1):
+                if idx in pos_indices:
+                    hits += 1
+                    prec_sum += hits / rank
+            ap_list.append(prec_sum / max(1, len(pos_indices)))
+        confs.append(float(probs[top_idx]))
+        corrects.append(int(cand_ids[top_idx] in pos_set))
+
+    if total == 0:
+        return {
+            'steps': 0,
+            'action_match_rate': None,
+            'index0_positive_rate': None,
+            'avg_candidates': None,
+            'random_top1_baseline': None,
+            'avg_reward': None,
+            'top3_hit_rate': None,
+            'top5_hit_rate': None,
+            'mAP': None,
+            'ECE': None,
+        }
+
+    avg_k = float(np.mean(cand_counts)) if cand_counts else None
+    rand_top1 = float(np.mean([1.0 / c for c in cand_counts])) if cand_counts else None
+    top3_rate = top3_hits / max(1, total)
+    top5_rate = top5_hits / max(1, total)
+    mAP = float(np.mean(ap_list)) if ap_list else 0.0
+
+    bins = 10
+    conf_arr = np.array(confs)
+    corr_arr = np.array(corrects)
+    bin_inds = np.clip((conf_arr * bins).astype(int), 0, bins - 1)
+    ece = 0.0
+    for b in range(bins):
+        mask = bin_inds == b
+        if not np.any(mask):
+            continue
+        conf_bin = float(np.mean(conf_arr[mask]))
+        acc_bin = float(np.mean(corr_arr[mask]))
+        weight = float(np.sum(mask)) / len(conf_arr)
+        ece += weight * abs(acc_bin - conf_bin)
+
+    return {
+        'steps': total,
+        'action_match_rate': top_matches / max(1, total),
+        'index0_positive_rate': idx0_pos / max(1, total),
+        'avg_candidates': avg_k,
+        'random_top1_baseline': rand_top1,
+        'avg_reward': None,
+        'top3_hit_rate': top3_rate,
+        'top5_hit_rate': top5_rate,
+        'mAP': mAP,
+        'ECE': ece,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--tasks', type=str, required=True)
     ap.add_argument('--cutoff', type=str, required=True)
-    ap.add_argument('--policy', type=str, required=True)
-    ap.add_argument('--windows', type=str, default='train,1m,3m,6m,12m')
+    ap.add_argument('--policy', type=str, default=None, help='Policy checkpoint (.pt). Required when eval-mode=policy.')
+    ap.add_argument('--max-candidates', type=int, default=8, help='Number of candidate slots exposed during evaluation.')
+    ap.add_argument('--windows', type=str, default='train,1m,3m,6m,12m',
+                    help='評価ウィンドウ（例: 1m, 3m-6m, -12m-0m）。負の値を使うとカットオフ以前（学習期間）を指定できます。')
     ap.add_argument('--out', type=str, default='outputs/task_assign/replay_eval.json')
     ap.add_argument('--reward-mode', type=str, default='match_gt',
                     choices=['match_gt','irl_softmax','accept_prob','irl_logprob','hybrid_match_irl','irl_entropy_bonus'],
@@ -220,36 +415,44 @@ def main():
     ap.add_argument('--temperature', type=float, default=None, help='Override temperature for IRL softmax (if None, use model or default=1.0).')
     ap.add_argument('--entropy-coef', type=float, default=None, help='Entropy coefficient for irl_entropy_bonus reward.')
     ap.add_argument('--hybrid-alpha', type=float, default=None, help='Alpha blending factor for hybrid_match_irl (weight on match reward).')
+    ap.add_argument('--eval-mode', type=str, default='policy', choices=['policy', 'irl'], help='Evaluation mode: policy (default) uses a trained RL policy; irl ranks candidates directly using the IRL model.')
     args = ap.parse_args()
 
     all_tasks, feat_order = _read_tasks(Path(args.tasks))
     cutoff = _to_dt(args.cutoff)
-    policy_path = Path(args.policy)
-    # Load IRL model if provided
-    irl_model = None
-    reward_mode = args.reward_mode
+    eval_mode = args.eval_mode
+
+    policy_path: Optional[Path] = Path(args.policy) if args.policy else None
+
+    irl_model: Optional[Dict[str, Any]] = None
+    irl_temperature: Optional[float] = args.temperature
     if args.irl_model:
         try:
             irl_obj = json.loads(Path(args.irl_model).read_text(encoding='utf-8'))
             irl_model = {
                 'theta': np.array(irl_obj.get('theta'), dtype=np.float64),
-                'scaler': irl_obj.get('scaler')
+                'scaler': irl_obj.get('scaler'),
             }
-            # Extract stored temperature if present
-            if 'temperature' in irl_obj and args.temperature is None:
-                irl_model['_temperature'] = irl_obj.get('temperature')
-            # CLI overrides (temperature / entropy / hybrid)
-            if args.temperature is not None:
-                irl_model['_temperature'] = args.temperature
-            if args.entropy_coef is not None:
-                irl_model['_entropy_coef'] = args.entropy_coef
-            if args.hybrid_alpha is not None:
-                irl_model['_hybrid_alpha'] = args.hybrid_alpha
-            # Auto-switch only if user stayed on default and selected an IRL-compatible reward
-            if reward_mode == 'match_gt':
-                reward_mode = 'irl_softmax'
+            model_feat_order = irl_obj.get('feature_order')
+            if model_feat_order:
+                feat_order = [f for f in model_feat_order if f in feat_order]
+            if irl_temperature is None and irl_obj.get('temperature') is not None:
+                irl_temperature = float(irl_obj.get('temperature'))
         except Exception:
-            pass
+            irl_model = None
+
+    reward_mode_used = None
+    if eval_mode == 'policy':
+        if policy_path is None:
+            raise ValueError('eval-mode=policy では --policy を指定してください。')
+        reward_mode = args.reward_mode
+        if irl_model is not None and reward_mode == 'match_gt':
+            reward_mode = 'irl_softmax'
+        reward_mode_used = reward_mode
+    else:
+        if irl_model is None:
+            raise ValueError('eval-mode=irl では --irl-model が必須です。')
+        reward_mode_used = 'irl_direct'
 
     results: Dict[str, Any] = {}
     windows_list = [w.strip() for w in args.windows.split(',') if w.strip()]
@@ -259,18 +462,35 @@ def main():
             results[w] = {'steps': 0, 'action_match_rate': None}
             continue
 
-        res = evaluate_window(subset, feat_order, policy_path, reward_mode=reward_mode, irl_model=irl_model)
+        if eval_mode == 'policy':
+            res = evaluate_window_policy(
+                subset,
+                feat_order,
+                policy_path,
+                max_candidates=int(args.max_candidates),
+                reward_mode=reward_mode,
+                irl_model=irl_model,
+                irl_temperature=irl_temperature,
+            )
+        else:
+            res = evaluate_window_irl(
+                subset,
+                feat_order,
+                irl_model,
+                temperature=float(irl_temperature if irl_temperature is not None else 1.0),
+            )
         results[w] = res
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     meta_out = {
         'cutoff': cutoff.isoformat(),
-        'reward_mode': reward_mode,
+        'reward_mode': reward_mode_used,
+        'eval_mode': eval_mode,
         'irl_model_used': bool(irl_model is not None),
         'results': results,
     }
     Path(args.out).write_text(json.dumps(meta_out, ensure_ascii=False, indent=2))
-    print(json.dumps({'out': args.out, 'windows': results, 'reward_mode': reward_mode}, ensure_ascii=False))
+    print(json.dumps({'out': args.out, 'windows': results, 'reward_mode': reward_mode_used}, ensure_ascii=False))
     return 0
 
 

@@ -23,11 +23,12 @@ import math
 import math as _math
 import os
 import random
+from bisect import bisect_left
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import yaml
 
@@ -100,6 +101,82 @@ def _iter_records(path: Path) -> Iterator[Dict[str, Any]]:
             for obj in _iter_json_array(f):
                 if isinstance(obj, dict):
                     yield obj
+
+
+def _normalize_dt(ts: str) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return _parse_iso(str(ts))
+    except Exception:
+        return None
+
+
+def _load_changes_index(path: Path | None, project_filter: Optional[Set[str]] = None) -> Optional[Dict[str, Any]]:
+    if path is None or not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+
+    containers: List[Dict[str, Any]]
+    if isinstance(raw, list) and raw and isinstance(raw[0], dict) and 'created' in raw[0]:
+        containers = [{'data': {'__all__': raw}}]
+    elif isinstance(raw, list):
+        containers = [c for c in raw if isinstance(c, dict)]
+    elif isinstance(raw, dict):
+        containers = [raw]
+    else:
+        return None
+
+    event_lookup: Dict[Tuple[str, datetime], List[Dict[str, Any]]] = defaultdict(list)
+    project_events: Dict[str, List[Tuple[datetime, str]]] = defaultdict(list)
+
+    for container in containers:
+        data = container.get('data') if isinstance(container, dict) else None
+        if not isinstance(data, dict):
+            continue
+        for project, changes in data.items():
+            if project_filter and project not in project_filter:
+                continue
+            if not isinstance(changes, list):
+                continue
+            for ch in changes:
+                created_dt = _normalize_dt(ch.get('created'))
+                if created_dt is None:
+                    continue
+                owner = ch.get('owner') or {}
+                owner_email = owner.get('email') or owner.get('username')
+                reviewers = ch.get('reviewers') or {}
+                participants: Set[str] = set()
+                if owner_email:
+                    participants.add(owner_email)
+                for role in ('REVIEWER', 'CC'):
+                    for rv in reviewers.get(role) or []:
+                        email = rv.get('email') or rv.get('username')
+                        if email:
+                            participants.add(email)
+                if not participants:
+                    continue
+                part_list = sorted(participants)
+                for dev in part_list:
+                    project_events[project].append((created_dt, dev))
+                    key = (dev.lower(), created_dt)
+                    event_lookup[key].append({
+                        'project': project,
+                        'owner': owner_email,
+                        'participants': part_list,
+                        'change_key': ch.get('id') or ch.get('change_id') or ch.get('_number'),
+                    })
+
+    for project, events in project_events.items():
+        events.sort(key=lambda x: x[0])
+
+    return {
+        'event_lookup': event_lookup,
+        'project_events': project_events,
+    }
 
 
 def _feat_from_state(state: Dict[str, Any]) -> Dict[str, float]:
@@ -221,11 +298,19 @@ def build_tasks_from_sequences(
     input_path: Path,
     cutoff_iso: str,
     out_dir: Path,
-    max_candidates: int = 8,
+    max_candidates: Optional[int] = None,
     seed: int | None = 42,
     candidate_sampling: str = 'random',  # 'random' | 'time-local'
     candidate_window_days: int = 30,
     shuffle_candidates: bool = True,
+    train_window_days: int | None = None,
+    eval_window_days: int | None = None,
+    train_window_months: float | None = None,
+    eval_window_months: float | None = None,
+    changes_json: Path | None = None,
+    candidate_activity_window_days: int | None = None,
+    candidate_activity_window_months: float | None = None,
+    project_filter: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     out_dir.mkdir(parents=True, exist_ok=True)
     cutoff = _parse_iso(cutoff_iso)
@@ -233,6 +318,21 @@ def build_tasks_from_sequences(
     # load minimal in-memory index for candidate sampling
     seqs: List[Dict[str, Any]] = list(_iter_records(input_path))
     reviewer_ids = [rec.get('reviewer_id') or rec.get('developer_id') for rec in seqs if (rec.get('reviewer_id') or rec.get('developer_id'))]
+    reviewer_ids = list(dict.fromkeys([rid for rid in reviewer_ids if rid]))
+    reviewer_id_set = set(reviewer_ids)
+
+    project_filter_set: Optional[Set[str]] = None
+    if project_filter:
+        project_filter_set = {p.strip() for p in project_filter if p and p.strip()}
+        if not project_filter_set:
+            project_filter_set = None
+
+    changes_index = _load_changes_index(changes_json, project_filter_set)
+    event_lookup: Dict[Tuple[str, datetime], List[Dict[str, Any]]] = {}
+    project_events: Dict[str, List[Tuple[datetime, str]]] = {}
+    if changes_index:
+        event_lookup = changes_index.get('event_lookup', {})
+        project_events = changes_index.get('project_events', {})
 
     # Build per-reviewer time-indexed states for time-local features
     by_reviewer: Dict[str, List[Tuple[datetime, Dict[str, Any]]]] = {}
@@ -282,6 +382,24 @@ def build_tasks_from_sequences(
         local_rng = random.Random(local_seed)
         local_rng.shuffle(idxs)
         return idxs
+
+    def _project_active_candidates(project: str, when: datetime) -> List[str]:
+        if not project or project not in project_events:
+            return []
+        events = project_events.get(project, [])
+        if not events:
+            return []
+        lo = when - timedelta(days=int(candidate_activity_window_days))
+        idx = bisect_left(events, (lo, ''))
+        active: List[str] = []
+        n = len(events)
+        while idx < n:
+            ts, dev = events[idx]
+            if ts > when:
+                break
+            active.append(dev)
+            idx += 1
+        return list(dict.fromkeys(active))
 
     # Helper: extract second-level directory tokens from path list
     def _dir_tokens(paths: List[str]) -> Tuple[Set[str], Set[str]]:
@@ -355,7 +473,7 @@ def build_tasks_from_sequences(
         # backward scan
         cnt = 0
         for t in reversed(lst):
-            if t > when:
+            if t >= when:
                 continue
             if t < lo:
                 break
@@ -445,31 +563,84 @@ def build_tasks_from_sequences(
                         continue
                     a = int(tr.get('action', 2))
                     state = tr.get('state', {}) or {}
+                    rid_lower = rid.lower()
+                    active_pool: List[str] = []
+                    owner_email = None
+                    project_name = None
+                    if event_lookup:
+                        meta_list = event_lookup.get((rid_lower, when))
+                        if meta_list:
+                            selected_meta = None
+                            for meta in meta_list:
+                                proj = meta.get('project')
+                                if project_filter_set and proj not in project_filter_set:
+                                    continue
+                                selected_meta = meta
+                                break
+                            if selected_meta is None and project_filter_set:
+                                continue
+                            if selected_meta:
+                                owner_email = selected_meta.get('owner')
+                                project_name = selected_meta.get('project')
+                                if project_name:
+                                    active_pool = _project_active_candidates(project_name, when)
+                        elif project_filter_set:
+                            # No metadata to verify project; skip if filtering
+                            continue
+                    if project_filter_set and project_name is None:
+                        # If filtering by project but metadata didn't yield project, skip task
+                        continue
+                    filtered_project_pool: List[str] = []
+                    active_pool = list(dict.fromkeys(active_pool))
+                    for candidate_id in active_pool:
+                        if not candidate_id:
+                            continue
+                        cand_lower = candidate_id.lower()
+                        if cand_lower == rid_lower:
+                            continue
+                        if owner_email and cand_lower == owner_email.lower():
+                            continue
+                        if candidate_id not in reviewer_id_set:
+                            continue
+                        filtered_project_pool.append(candidate_id)
+                    filtered_project_pool = list(dict.fromkeys(filtered_project_pool))
+
                     # Build candidates (ensure GT is included but remove positional bias by shuffling later)
                     cands = [rid]
-                    pool = [x for x in reviewer_ids if x and x != rid]
-                    if candidate_sampling == 'time-local':
-                        # keep only reviewers with at least one transition within ±window around 'when'
-                        window = candidate_window_days
-                        lo = when - timedelta(days=window)
-                        hi = when + timedelta(days=window)
-                        filtered = []
-                        for r in pool:
-                            arr = by_reviewer.get(r) or []
-                            # simple scan (small lists)
-                            ok = any(lo <= t <= hi for (t, _st) in arr)
-                            if ok:
-                                filtered.append(r)
-                        pool = filtered or pool  # fallback to global if empty
-                    rng.shuffle(pool)
-                    for r in pool:
-                        if len(cands) >= max_candidates:
+                    limit = max_candidates if (max_candidates is not None and max_candidates > 0) else None
+                    if filtered_project_pool:
+                        pool_iter = filtered_project_pool
+                    else:
+                        if project_filter_set:
+                            pool_iter = []
+                        else:
+                            pool = [x for x in reviewer_ids if x and x != rid]
+                            if candidate_sampling == 'time-local':
+                                # keep only reviewers with at least one transition within ±window around 'when'
+                                window = candidate_window_days
+                                lo = when - timedelta(days=window)
+                                hi = when + timedelta(days=window)
+                                filtered = []
+                                for r in pool:
+                                    arr = by_reviewer.get(r) or []
+                                    # simple scan (small lists)
+                                    ok = any(lo <= t <= hi for (t, _st) in arr)
+                                    if ok:
+                                        filtered.append(r)
+                                pool = filtered or pool  # fallback to global if empty
+                            rng.shuffle(pool)
+                            pool_iter = pool
+                    for r in pool_iter:
+                        if limit is not None and len(cands) >= limit:
                             break
                         cands.append(r)
 
                     # Deduplicate (safety)
                     seen = set()
                     cands = [x for x in cands if not (x in seen or seen.add(x))]
+
+                    if len(cands) < 2:
+                        continue
 
                     # Shuffle candidate order deterministically per task (reduce positional bias)
                     if shuffle_candidates:
@@ -618,8 +789,39 @@ def build_tasks_from_sequences(
         registry_path = alt if alt.exists() else registry_path
     feature_registry = _load_feature_registry(registry_path)
 
-    train_path, n_train = _gen('train', lambda t: t <= cutoff)
-    eval_path, n_eval = _gen('eval', lambda t: t > cutoff)
+    if train_window_months is not None and train_window_days is not None:
+        raise ValueError('train-window-days と train-window-months は同時指定できません。')
+    if eval_window_months is not None and eval_window_days is not None:
+        raise ValueError('eval-window-days と eval-window-months は同時指定できません。')
+    if candidate_activity_window_months is not None and candidate_activity_window_days is not None:
+        raise ValueError('candidate-activity-window-days と candidate-activity-window-months は同時指定できません。')
+
+    if train_window_months is not None:
+        train_window_days = int(round(float(train_window_months) * 30))
+    if eval_window_months is not None:
+        eval_window_days = int(round(float(eval_window_months) * 30))
+    if candidate_activity_window_months is not None:
+        candidate_activity_window_days = int(round(float(candidate_activity_window_months) * 30))
+    if candidate_activity_window_days is None:
+        candidate_activity_window_days = 180
+
+    train_window = int(train_window_days) if train_window_days is not None else None
+    eval_window = int(eval_window_days) if eval_window_days is not None else None
+
+    if train_window is not None:
+        train_start = cutoff - timedelta(days=train_window)
+        train_pred = lambda t, lo=train_start, hi=cutoff: lo <= t <= hi
+    else:
+        train_pred = lambda t, hi=cutoff: t <= hi
+
+    if eval_window is not None:
+        eval_end = cutoff + timedelta(days=eval_window)
+        eval_pred = lambda t, lo=cutoff, hi=eval_end: lo < t <= hi
+    else:
+        eval_pred = lambda t, lo=cutoff: t > lo
+
+    train_path, n_train = _gen('train', train_pred)
+    eval_path, n_eval = _gen('eval', eval_pred)
     meta = {
         'source': str(input_path),
         'cutoff': cutoff.isoformat(),
@@ -627,12 +829,20 @@ def build_tasks_from_sequences(
         'train_count': n_train,
         'eval_tasks': eval_path,
         'eval_count': n_eval,
-        'max_candidates': int(max_candidates),
+    'max_candidates': int(max_candidates) if isinstance(max_candidates, int) and max_candidates > 0 else None,
         'seed': int(seed) if seed is not None else None,
         'candidate_sampling': str(candidate_sampling),
         'candidate_window_days': int(candidate_window_days),
         'shuffle_candidates': bool(shuffle_candidates),
         'registry_features_loaded': list(feature_registry.keys()),
+        'train_window_days': train_window,
+        'eval_window_days': eval_window,
+        'train_window_months': float(train_window_months) if train_window_months is not None else None,
+        'eval_window_months': float(eval_window_months) if eval_window_months is not None else None,
+        'changes_json': str(changes_json) if changes_json is not None else None,
+        'candidate_activity_window_days': int(candidate_activity_window_days) if candidate_activity_window_days is not None else None,
+        'candidate_activity_window_months': float(candidate_activity_window_months) if candidate_activity_window_months is not None else None,
+        'project_filter': sorted(project_filter_set) if project_filter_set else None,
     }
     (out_dir / 'tasks_meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2))
     return meta
@@ -643,21 +853,37 @@ def main():
     ap.add_argument('--input', type=str, default='outputs/irl/reviewer_sequences.json')
     ap.add_argument('--cutoff', type=str, default='2024-07-01T00:00:00Z')
     ap.add_argument('--outdir', type=str, default='outputs/task_assign')
-    ap.add_argument('--max-candidates', type=int, default=8)
+    ap.add_argument('--max-candidates', type=int, default=None)
     ap.add_argument('--seed', type=int, default=42)
     ap.add_argument('--candidate-sampling', type=str, default='random', choices=['random', 'time-local'])
     ap.add_argument('--candidate-window-days', type=int, default=30)
     ap.add_argument('--no-shuffle-candidates', action='store_true', help='Disable deterministic candidate shuffling (reduces positional bias by default).')
+    ap.add_argument('--train-window-days', type=int, default=None, help='Restrict training tasks to this many days before cutoff (inclusive).')
+    ap.add_argument('--eval-window-days', type=int, default=None, help='Restrict evaluation tasks to this many days after cutoff (inclusive).')
+    ap.add_argument('--train-window-months', type=float, default=None, help='train-window-days の代わりに月単位で指定します (1か月=30日換算)。')
+    ap.add_argument('--eval-window-months', type=float, default=None, help='eval-window-days の代わりに月単位で指定します (1か月=30日換算)。')
+    ap.add_argument('--changes-json', type=str, default='data/processed/unified/all_reviews.json', help='Project activity source (all_reviews.json)。指定しない場合はプロジェクト制約をスキップ。')
+    ap.add_argument('--candidate-activity-window-days', type=int, default=None, help='候補者を抽出する過去日数 (レビュー/コミット活動)。')
+    ap.add_argument('--candidate-activity-window-months', type=float, default=6.0, help='候補者抽出ウィンドウ（月単位、1か月=30日換算）。days と同時指定不可。')
+    ap.add_argument('--project', action='append', default=None, help='この名前のプロジェクトのみを対象にタスクを生成します。複数指定可。')
     args = ap.parse_args()
     meta = build_tasks_from_sequences(
         Path(args.input),
         args.cutoff,
         Path(args.outdir),
-        max_candidates=int(args.max_candidates),
+    max_candidates=args.max_candidates,
         seed=int(args.seed),
         candidate_sampling=str(args.candidate_sampling),
         candidate_window_days=int(args.candidate_window_days),
         shuffle_candidates=not bool(args.no_shuffle_candidates),
+        train_window_days=args.train_window_days,
+        eval_window_days=args.eval_window_days,
+        train_window_months=args.train_window_months,
+        eval_window_months=args.eval_window_months,
+        changes_json=Path(args.changes_json) if args.changes_json else None,
+        candidate_activity_window_days=args.candidate_activity_window_days,
+        candidate_activity_window_months=args.candidate_activity_window_months,
+        project_filter=args.project,
     )
     print(json.dumps(meta, ensure_ascii=False, indent=2))
     return 0
