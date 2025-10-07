@@ -103,6 +103,88 @@ def _iter_records(path: Path) -> Iterator[Dict[str, Any]]:
                     yield obj
 
 
+def _dir_tokens(paths: List[str]) -> Tuple[Set[str], Set[str]]:
+    dir1: Set[str] = set()
+    dir2: Set[str] = set()
+    for p in paths:
+        if not isinstance(p, str):
+            continue
+        norm = p.strip('/').strip()
+        if not norm:
+            continue
+        parts = [seg for seg in norm.split('/') if seg]
+        if not parts:
+            continue
+        dir1.add(parts[0])
+        if len(parts) >= 2:
+            dir2.add('/'.join(parts[:2]))
+    return dir1, dir2
+
+
+def _collect_change_files(change: Dict[str, Any]) -> List[str]:
+    files: Set[str] = set()
+    revisions = change.get('revisions') or {}
+    if isinstance(revisions, dict):
+        for rev in revisions.values():
+            if not isinstance(rev, dict):
+                continue
+            rev_files = rev.get('files') or {}
+            if not isinstance(rev_files, dict):
+                continue
+            for path in rev_files.keys():
+                if not isinstance(path, str):
+                    continue
+                if not path or path.startswith('/'):
+                    continue
+                files.add(path)
+    # Fallback: some dumps store file paths in top-level 'files'
+    top_files = change.get('files')
+    if isinstance(top_files, list):
+        for path in top_files:
+            if isinstance(path, str) and path and not path.startswith('/'):
+                files.add(path)
+    return sorted(files)
+
+
+def _analyze_change_paths(paths: List[str]) -> Dict[str, float]:
+    count = len(paths)
+    if count == 0:
+        return {
+            'doc_ratio': 0.0,
+            'test_ratio': 0.0,
+            'avg_depth': 0.0,
+            'max_depth': 0.0,
+            'primary_dir_max_frac': 0.0,
+        }
+    doc_count = 0
+    test_count = 0
+    total_depth = 0
+    max_depth = 0
+    dir1_counter: Counter[str] = Counter()
+    for path in paths:
+        norm = path.strip('/')
+        parts = [seg for seg in norm.split('/') if seg]
+        depth = len(parts)
+        total_depth += depth
+        if depth > max_depth:
+            max_depth = depth
+        lower_parts = [seg.lower() for seg in parts]
+        if any('doc' in seg for seg in lower_parts):
+            doc_count += 1
+        if any('test' in seg for seg in lower_parts):
+            test_count += 1
+        if parts:
+            dir1_counter[parts[0]] += 1
+    primary_dir_max = max(dir1_counter.values()) if dir1_counter else 0
+    return {
+        'doc_ratio': float(doc_count) / float(count) if count else 0.0,
+        'test_ratio': float(test_count) / float(count) if count else 0.0,
+        'avg_depth': float(total_depth) / float(count) if count else 0.0,
+        'max_depth': float(max_depth),
+        'primary_dir_max_frac': float(primary_dir_max) / float(count) if count else 0.0,
+    }
+
+
 def _normalize_dt(ts: str) -> Optional[datetime]:
     if not ts:
         return None
@@ -159,6 +241,36 @@ def _load_changes_index(path: Path | None, project_filter: Optional[Set[str]] = 
                             participants.add(email)
                 if not participants:
                     continue
+                file_paths = _collect_change_files(ch)
+                dir1_tokens, dir2_tokens = _dir_tokens(file_paths)
+                path_stats = _analyze_change_paths(file_paths)
+                insertions = int(ch.get('insertions') or 0)
+                deletions = int(ch.get('deletions') or 0)
+                total_churn = insertions + deletions
+                subject = ch.get('subject') or ''
+                change_info = {
+                    'file_paths': file_paths,
+                    'dir1': sorted(dir1_tokens),
+                    'dir2': sorted(dir2_tokens),
+                    'file_count': int(len(file_paths)),
+                    'dir1_count': int(len(dir1_tokens)),
+                    'dir2_count': int(len(dir2_tokens)),
+                    'doc_ratio': path_stats['doc_ratio'],
+                    'test_ratio': path_stats['test_ratio'],
+                    'avg_path_depth': path_stats['avg_depth'],
+                    'max_path_depth': path_stats['max_depth'],
+                    'primary_dir_max_frac': path_stats['primary_dir_max_frac'],
+                    'insertions': float(insertions),
+                    'deletions': float(deletions),
+                    'total_churn': float(total_churn),
+                    'total_churn_log1p': float(_math.log1p(total_churn)),
+                    'file_count_log1p': float(_math.log1p(max(0, len(file_paths)))),
+                    'subject_length': float(len(subject)),
+                    'subject_length_log1p': float(_math.log1p(len(subject))) if subject else 0.0,
+                    'subject_word_count': float(len(subject.split())) if subject else 0.0,
+                    'is_revert': 1.0 if subject.strip().lower().startswith('revert') else 0.0,
+                    'topic_length': float(len((ch.get('topic') or '').split())) if ch.get('topic') else 0.0,
+                }
                 part_list = sorted(participants)
                 for dev in part_list:
                     project_events[project].append((created_dt, dev))
@@ -168,6 +280,8 @@ def _load_changes_index(path: Path | None, project_filter: Optional[Set[str]] = 
                         'owner': owner_email,
                         'participants': part_list,
                         'change_key': ch.get('id') or ch.get('change_id') or ch.get('_number'),
+                        'change_info': change_info,
+                        'created': created_dt.isoformat(),
                     })
 
     for project, events in project_events.items():
@@ -402,19 +516,6 @@ def build_tasks_from_sequences(
         return list(dict.fromkeys(active))
 
     # Helper: extract second-level directory tokens from path list
-    def _dir_tokens(paths: List[str]) -> Tuple[Set[str], Set[str]]:
-        dir1: Set[str] = set()
-        dir2: Set[str] = set()
-        for p in paths:
-            if not isinstance(p, str):
-                continue
-            parts = p.strip('/').split('/')
-            if parts and parts[0]:
-                dir1.add(parts[0])
-            if len(parts) >= 2:
-                dir2.add('/'.join(parts[:2]))
-        return dir1, dir2
-
     def _jaccard(a: Set[str], b: Set[str]) -> float:
         if not a and not b:
             return 0.0
@@ -430,13 +531,21 @@ def build_tasks_from_sequences(
     reviewer_recent_dirs: Dict[str, List[Tuple[datetime, Set[str]]]] = {}
     global_df: Counter = Counter()  # document frequency for dir tokens
     total_docs = 0
+    def _select_meta(meta_list: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, Any]]:
+        if not meta_list:
+            return None
+        if project_filter_set:
+            for meta in meta_list:
+                proj = meta.get('project')
+                if proj in project_filter_set:
+                    return meta
+            return None
+        return meta_list[0]
+
     for rec in seqs:
         rid_main = rec.get('reviewer_id') or rec.get('developer_id') or 'unknown@example.com'
-        owner_id = rec.get('owner_id') or rec.get('owner') or rec.get('author')  # heuristic
         trans = rec.get('transitions') or []
-        file_list = rec.get('files') or rec.get('changed_files') or []
-        d1, d2 = _dir_tokens(file_list) if file_list else (set(), set())
-        merged_dirs = d1 | d2
+        rid_lower = rid_main.lower()
         for tr in trans:
             ts = tr.get('t') or tr.get('timestamp')
             if not ts:
@@ -445,11 +554,30 @@ def build_tasks_from_sequences(
                 tdt = _parse_iso(str(ts))
             except Exception:
                 continue
-            # Pair owner→reviewer (assignment surrogate): action==1 or any transition counts as exposure
-            if owner_id:
-                key = (owner_id, rid_main)
+            meta_list = event_lookup.get((rid_lower, tdt))
+            selected_meta = _select_meta(meta_list)
+            change_info = selected_meta.get('change_info') if selected_meta else {}
+            owner_email = (selected_meta.get('owner') if selected_meta else None) or rec.get('owner_id') or rec.get('owner') or rec.get('author')
+
+            file_paths = change_info.get('file_paths') if isinstance(change_info, dict) else None
+            if not file_paths:
+                fallback_files = rec.get('files') or rec.get('changed_files') or []
+                file_paths = [p for p in fallback_files if isinstance(p, str)]
+            dir1_tokens = set(change_info.get('dir1') or []) if isinstance(change_info, dict) else set()
+            dir2_tokens = set(change_info.get('dir2') or []) if isinstance(change_info, dict) else set()
+            merged_dirs = dir1_tokens | dir2_tokens
+            if not merged_dirs and file_paths:
+                d1_fallback, d2_fallback = _dir_tokens(file_paths)
+                merged_dirs = d1_fallback | d2_fallback
+                if not dir1_tokens:
+                    dir1_tokens = d1_fallback
+                if not dir2_tokens:
+                    dir2_tokens = d2_fallback
+
+            owner_norm = owner_email.lower() if isinstance(owner_email, str) else None
+            if owner_norm:
+                key = (owner_norm, rid_lower)
                 owner_pair_events.setdefault(key, []).append(tdt)
-            # Path history (use transitions as proxy; attach file set if any)
             if merged_dirs:
                 reviewer_paths.setdefault(rid_main, []).append((tdt, merged_dirs))
                 total_docs += 1
@@ -465,7 +593,7 @@ def build_tasks_from_sequences(
         lst.sort()
 
     def _lookup_pair_count(owner: str, reviewer: str, when: datetime, days: int = 180) -> int:
-        key = (owner, reviewer)
+        key = (str(owner).lower(), str(reviewer).lower())
         lst = owner_pair_events.get(key)
         if not lst:
             return 0
@@ -567,29 +695,24 @@ def build_tasks_from_sequences(
                     active_pool: List[str] = []
                     owner_email = None
                     project_name = None
+                    selected_meta: Optional[Dict[str, Any]] = None
                     if event_lookup:
                         meta_list = event_lookup.get((rid_lower, when))
-                        if meta_list:
-                            selected_meta = None
-                            for meta in meta_list:
-                                proj = meta.get('project')
-                                if project_filter_set and proj not in project_filter_set:
-                                    continue
-                                selected_meta = meta
-                                break
-                            if selected_meta is None and project_filter_set:
-                                continue
-                            if selected_meta:
-                                owner_email = selected_meta.get('owner')
-                                project_name = selected_meta.get('project')
-                                if project_name:
-                                    active_pool = _project_active_candidates(project_name, when)
-                        elif project_filter_set:
-                            # No metadata to verify project; skip if filtering
+                        selected_meta = _select_meta(meta_list)
+                        if selected_meta is None and project_filter_set:
                             continue
+                        if selected_meta:
+                            owner_email = selected_meta.get('owner')
+                            project_name = selected_meta.get('project')
+                            if project_name:
+                                active_pool = _project_active_candidates(project_name, when)
+                    elif project_filter_set:
+                        # Metadata required to enforce project filter
+                        continue
                     if project_filter_set and project_name is None:
                         # If filtering by project but metadata didn't yield project, skip task
                         continue
+                    change_info = selected_meta.get('change_info') if selected_meta else {}
                     filtered_project_pool: List[str] = []
                     active_pool = list(dict.fromkeys(active_pool))
                     for candidate_id in active_pool:
@@ -604,6 +727,74 @@ def build_tasks_from_sequences(
                             continue
                         filtered_project_pool.append(candidate_id)
                     filtered_project_pool = list(dict.fromkeys(filtered_project_pool))
+
+                    change_info_dict = change_info if isinstance(change_info, dict) else {}
+                    change_file_paths = list(change_info_dict.get('file_paths') or [])
+                    change_dir1 = set(change_info_dict.get('dir1') or [])
+                    change_dir2 = set(change_info_dict.get('dir2') or [])
+                    if not change_dir1 and not change_dir2 and change_file_paths:
+                        d1_tmp, d2_tmp = _dir_tokens(change_file_paths)
+                        change_dir1 = d1_tmp
+                        change_dir2 = d2_tmp
+                    if not change_file_paths:
+                        fallback_files = rec.get('files') or rec.get('changed_files') or []
+                        fallback_files = [p for p in fallback_files if isinstance(p, str)]
+                        if fallback_files:
+                            change_file_paths = list(fallback_files)
+                            if not change_dir1 and not change_dir2:
+                                d1_tmp, d2_tmp = _dir_tokens(change_file_paths)
+                                change_dir1 = d1_tmp
+                                change_dir2 = d2_tmp
+                    change_dirs_all = change_dir1 | change_dir2
+                    file_count = len(change_file_paths)
+                    dir1_count = len(change_dir1)
+                    dir2_count = len(change_dir2)
+                    total_churn_val = float(change_info_dict.get('total_churn', 0.0))
+                    total_churn_log = float(change_info_dict.get('total_churn_log1p', _math.log1p(total_churn_val))) if total_churn_val >= 0 else 0.0
+                    file_count_log = float(change_info_dict.get('file_count_log1p', _math.log1p(file_count))) if file_count >= 0 else 0.0
+                    doc_ratio = float(change_info_dict.get('doc_ratio', 0.0))
+                    test_ratio = float(change_info_dict.get('test_ratio', 0.0))
+                    avg_depth = float(change_info_dict.get('avg_path_depth', 0.0))
+                    max_depth = float(change_info_dict.get('max_path_depth', 0.0))
+                    primary_dir_max_frac = float(change_info_dict.get('primary_dir_max_frac', 0.0))
+                    subject_length = float(change_info_dict.get('subject_length', 0.0))
+                    subject_length_log = float(change_info_dict.get('subject_length_log1p', _math.log1p(subject_length) if subject_length > 0 else 0.0)) if subject_length >= 0 else 0.0
+                    subject_word_count = float(change_info_dict.get('subject_word_count', 0.0))
+                    is_revert = float(change_info_dict.get('is_revert', 0.0))
+                    topic_length = float(change_info_dict.get('topic_length', 0.0))
+
+                    task_feature_values: Dict[str, float] = {}
+                    if feature_registry:
+                        def _maybe_add_task_feat(name: str, value: float) -> None:
+                            if name in feature_registry:
+                                task_feature_values[name] = float(value)
+
+                        _maybe_add_task_feat('change_file_count', float(file_count))
+                        _maybe_add_task_feat('change_file_count_log1p', file_count_log)
+                        _maybe_add_task_feat('change_primary_dir_count', float(dir1_count))
+                        _maybe_add_task_feat('change_secondary_dir_count', float(dir2_count))
+                        _maybe_add_task_feat('change_primary_dir_max_frac', primary_dir_max_frac)
+                        insertions_val = float(change_info_dict.get('insertions', 0.0))
+                        deletions_val = float(change_info_dict.get('deletions', 0.0))
+                        churn_per_file = float(total_churn_val) / float(max(1, file_count))
+                        _maybe_add_task_feat('change_total_churn', total_churn_val)
+                        _maybe_add_task_feat('change_total_churn_log1p', total_churn_log)
+                        _maybe_add_task_feat('change_insertions', insertions_val)
+                        _maybe_add_task_feat('change_insertions_log1p', float(_math.log1p(max(0.0, insertions_val))))
+                        _maybe_add_task_feat('change_deletions', deletions_val)
+                        _maybe_add_task_feat('change_deletions_log1p', float(_math.log1p(max(0.0, deletions_val))))
+                        _maybe_add_task_feat('change_churn_per_file', churn_per_file)
+                        _maybe_add_task_feat('change_doc_file_ratio', doc_ratio)
+                        _maybe_add_task_feat('change_test_file_ratio', test_ratio)
+                        _maybe_add_task_feat('change_avg_path_depth', avg_depth)
+                        _maybe_add_task_feat('change_max_path_depth', max_depth)
+                        _maybe_add_task_feat('change_subject_length', subject_length)
+                        _maybe_add_task_feat('change_subject_length_log1p', subject_length_log)
+                        _maybe_add_task_feat('change_subject_word_count', subject_word_count)
+                        _maybe_add_task_feat('change_is_revert', is_revert)
+                        _maybe_add_task_feat('change_topic_length', topic_length)
+                    else:
+                        task_feature_values = {}
 
                     # Build candidates (ensure GT is included but remove positional bias by shuffling later)
                     cands = [rid]
@@ -676,6 +867,8 @@ def build_tasks_from_sequences(
                     for r in cands:
                         cand_state = _latest_state_before(r, when) or state
                         feats = _feat_from_state(cand_state)
+                        if task_feature_values:
+                            feats.update(task_feature_values)
                         # Registry-driven extensions
                         if feature_registry:
                             # Build meta dict for candidate reviewer (only reliable for focal rid; others fallback minimal)
@@ -718,32 +911,62 @@ def build_tasks_from_sequences(
                                     feats['active_hour_match'] = 0.0
                             # Pair feature
                             if 'owner_reviewer_past_assignments_180d' in feature_registry:
-                                owner_id = rec.get('owner_id') or rec.get('owner') or rec.get('author')
+                                owner_id = owner_email or rec.get('owner_id') or rec.get('owner') or rec.get('author')
                                 if owner_id:
                                     feats['owner_reviewer_past_assignments_180d'] = float(
                                         _lookup_pair_count(owner_id, r, when, days=180)
                                     )
                                 else:
                                     feats['owner_reviewer_past_assignments_180d'] = 0.0
+                            hist_dirs_for_r: Optional[Set[str]] = None
+                            hist_dirs_dir2_only: Optional[Set[str]] = None
+                            hist_counter_for_r: Optional[Counter] = None
+                            path_dir2_tokens = change_dir2
+                            path_dir_all_tokens = change_dirs_all
+
+                            def _ensure_hist_dirs() -> Set[str]:
+                                nonlocal hist_dirs_for_r, hist_dirs_dir2_only
+                                if hist_dirs_for_r is None:
+                                    hist_dirs_for_r = _lookup_dir2_history(r, when, days=180)
+                                if hist_dirs_dir2_only is None:
+                                    dir2_only = {tok for tok in hist_dirs_for_r if isinstance(tok, str) and '/' in tok}
+                                    hist_dirs_dir2_only = dir2_only if dir2_only else set(hist_dirs_for_r)
+                                return hist_dirs_dir2_only
+
                             # Path Jaccard dir2 similarity
                             if 'path_jaccard_dir2_180d' in feature_registry:
-                                file_list = rec.get('files') or rec.get('changed_files') or []
-                                d1, d2 = _dir_tokens(file_list) if file_list else (set(), set())
-                                cur_dirs = d1 | d2
-                                if cur_dirs:
-                                    hist_dirs = _lookup_dir2_history(r, when, days=180)
-                                    feats['path_jaccard_dir2_180d'] = _jaccard(cur_dirs, hist_dirs)
+                                if path_dir2_tokens:
+                                    hist_dir2 = _ensure_hist_dirs()
+                                    feats['path_jaccard_dir2_180d'] = _jaccard(path_dir2_tokens, hist_dir2)
                                 else:
                                     feats['path_jaccard_dir2_180d'] = 0.0
+                            if 'path_overlap_count_dir2_180d' in feature_registry:
+                                if path_dir2_tokens:
+                                    hist_dir2 = _ensure_hist_dirs()
+                                    feats['path_overlap_count_dir2_180d'] = float(len(path_dir2_tokens & hist_dir2))
+                                else:
+                                    feats['path_overlap_count_dir2_180d'] = 0.0
+                            if 'path_overlap_ratio_dir2_180d' in feature_registry:
+                                if path_dir2_tokens:
+                                    hist_dir2 = _ensure_hist_dirs()
+                                    overlap_cnt = len(path_dir2_tokens & hist_dir2)
+                                    feats['path_overlap_ratio_dir2_180d'] = float(overlap_cnt) / float(max(1, len(path_dir2_tokens)))
+                                else:
+                                    feats['path_overlap_ratio_dir2_180d'] = 0.0
                             if 'path_tfidf_cosine_recent30' in feature_registry:
-                                file_list = rec.get('files') or rec.get('changed_files') or []
-                                d1, d2 = _dir_tokens(file_list) if file_list else (set(), set())
-                                cur_dirs = d1 | d2
-                                if cur_dirs:
-                                    hist_counter = _lookup_recent_dirs_tfidf(r, when, days=30)
-                                    feats['path_tfidf_cosine_recent30'] = _tfidf_cosine(cur_dirs, hist_counter)
+                                if path_dir_all_tokens:
+                                    if hist_counter_for_r is None:
+                                        hist_counter_for_r = _lookup_recent_dirs_tfidf(r, when, days=30)
+                                    feats['path_tfidf_cosine_recent30'] = _tfidf_cosine(path_dir_all_tokens, hist_counter_for_r)
                                 else:
                                     feats['path_tfidf_cosine_recent30'] = 0.0
+                            if 'path_overlap_recent30' in feature_registry:
+                                if path_dir_all_tokens:
+                                    if hist_counter_for_r is None:
+                                        hist_counter_for_r = _lookup_recent_dirs_tfidf(r, when, days=30)
+                                    feats['path_overlap_recent30'] = float(sum(hist_counter_for_r.get(tok, 0) for tok in path_dir_all_tokens))
+                                else:
+                                    feats['path_overlap_recent30'] = 0.0
                             # Pair normalization features
                             if 'owner_reviewer_past_assignments_180d_log1p' in feature_registry:
                                 val = feats.get('owner_reviewer_past_assignments_180d', 0.0)
@@ -751,8 +974,9 @@ def build_tasks_from_sequences(
                             if 'owner_reviewer_past_assignments_ratio_180d' in feature_registry:
                                 # denominator: reviewer total assignments (irrespective of owner) in 180d
                                 reviewer_total = 0
+                                r_lower = r.lower()
                                 for (own, rv), times in owner_pair_events.items():
-                                    if rv == r:
+                                    if rv == r_lower:
                                         # count times within window
                                         cnt = 0; lo_t = when - timedelta(days=180)
                                         for tt in reversed(times):
