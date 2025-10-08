@@ -49,7 +49,8 @@ EVAL_WINDOW_ORDER = [
     "18m-24m",
 ]
 
-EVAL_TOP_N = 1
+TRAIN_TOP_N_VALUES = [None, 1, 3, 5]
+EVAL_TOP_N_VALUES = [1, 3, 5]
 
 
 @dataclass
@@ -74,17 +75,26 @@ def _gini(counts: np.ndarray) -> float:
     return (n + 1 - 2 * np.sum(cumulative) / cumulative[-1]) / n
 
 
-def _counter_from_csv(csv_path: Path) -> tuple[Counter[str], int]:
+def _counter_from_csv(
+    csv_path: Path, *, ranking_column: str | None = None, top_n: int | None = None
+) -> tuple[Counter[str], int]:
     counter: Counter[str] = Counter()
     total = 0
-    chunk_iter = pd.read_csv(
-        csv_path,
-        usecols=["reviewer_id", "selected"],
-        dtype={"reviewer_id": "string", "selected": "int8"},
-        chunksize=200_000,
-    )
+    if ranking_column is None:
+        usecols = ["reviewer_id", "selected"]
+        dtype = {"reviewer_id": "string", "selected": "int8"}
+    else:
+        usecols = ["reviewer_id", ranking_column]
+        dtype = {"reviewer_id": "string", ranking_column: "int32"}
+
+    chunk_iter = pd.read_csv(csv_path, usecols=usecols, dtype=dtype, chunksize=200_000)
     for chunk in chunk_iter:
-        mask = chunk["selected"] == 1
+        if ranking_column is None:
+            mask = chunk["selected"] == 1
+        else:
+            if top_n is None:
+                raise ValueError("top_n must be provided when ranking_column is used")
+            mask = chunk[ranking_column] <= top_n
         if mask.any():
             reviewers = chunk.loc[mask, "reviewer_id"].dropna()
             counter.update(reviewers.tolist())
@@ -110,16 +120,20 @@ def _counter_from_eval_csv(csv_path: Path, top_n: int) -> tuple[Counter[str], in
     return counter, total
 
 
-def compute_diversity_metrics() -> tuple[pd.DataFrame, pd.DataFrame]:
+def compute_diversity_metrics(top_n: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     records: list[DiversityMetrics] = []
     top_reviewers_rows: list[dict[str, str | float | int]] = []
 
     for window in WINDOW_ORDER:
         csv_path = TRAIN_CSV_DIR / f"{window}.csv"
         if not csv_path.exists():
-            # Some windows may have been renamed or removed; skip gracefully.
             continue
-        counter, total = _counter_from_csv(csv_path)
+        if top_n is None:
+            counter, total = _counter_from_csv(csv_path)
+        else:
+            counter, total = _counter_from_csv(
+                csv_path, ranking_column="candidate_rank", top_n=top_n
+            )
         counts = np.array(list(counter.values()), dtype=np.float64)
         if total == 0:
             records.append(
@@ -423,38 +437,86 @@ def plot_eval_diversity(diversity_df: pd.DataFrame, top_n: int) -> Path:
 
 
 def main() -> None:
-    diversity_df, top_reviewers_df = compute_diversity_metrics()
-    diversity_df.to_csv(OUTPUT_DIR / "reviewer_diversity_train.csv", index=False)
-    top_reviewers_df.to_csv(OUTPUT_DIR / "top_reviewers_train.csv", index=False)
+    train_diversity_summary: list[pd.DataFrame] = []
+    selected_diversity_df: pd.DataFrame | None = None
+    for top_n in TRAIN_TOP_N_VALUES:
+        top_suffix = "selected" if top_n is None else f"top{top_n}"
+        diversity_df, top_reviewers_df = compute_diversity_metrics(top_n)
+        diversity_df.to_csv(
+            OUTPUT_DIR / f"reviewer_diversity_train_{top_suffix}.csv", index=False
+        )
+        top_reviewers_df.to_csv(
+            OUTPUT_DIR / f"top_reviewers_train_{top_suffix}.csv", index=False
+        )
+        if top_n is None:
+            diversity_df.to_csv(OUTPUT_DIR / "reviewer_diversity_train.csv", index=False)
+            top_reviewers_df.to_csv(OUTPUT_DIR / "top_reviewers_train.csv", index=False)
+            selected_diversity_df = diversity_df
+        if not diversity_df.empty:
+            label = "selected" if top_n is None else f"top{top_n}"
+            train_diversity_summary.append(diversity_df.assign(top_n=label))
+        print(
+            "Saved training diversity metrics to "
+            f"{OUTPUT_DIR / f'reviewer_diversity_train_{top_suffix}.csv'}"
+        )
+        print(
+            "Saved training top reviewer table to "
+            f"{OUTPUT_DIR / f'top_reviewers_train_{top_suffix}.csv'}"
+        )
 
-    eval_diversity_df, eval_top_reviewers_df = compute_eval_diversity_metrics(EVAL_TOP_N)
-    eval_diversity_df.to_csv(
-        OUTPUT_DIR / f"reviewer_diversity_eval_top{EVAL_TOP_N}.csv", index=False
-    )
-    eval_top_reviewers_df.to_csv(
-        OUTPUT_DIR / f"top_reviewers_eval_top{EVAL_TOP_N}.csv", index=False
-    )
+    if train_diversity_summary:
+        train_summary_df = pd.concat(train_diversity_summary, ignore_index=True)
+        train_summary_df.to_csv(
+            OUTPUT_DIR / "reviewer_diversity_train_summary.csv", index=False
+        )
+        print(
+            "Saved training diversity summary to "
+            f"{OUTPUT_DIR / 'reviewer_diversity_train_summary.csv'}"
+        )
+
+    eval_diversity_summary: list[pd.DataFrame] = []
+    for top_n in EVAL_TOP_N_VALUES:
+        eval_diversity_df, eval_top_reviewers_df = compute_eval_diversity_metrics(top_n)
+        eval_diversity_df.to_csv(
+            OUTPUT_DIR / f"reviewer_diversity_eval_top{top_n}.csv", index=False
+        )
+        eval_top_reviewers_df.to_csv(
+            OUTPUT_DIR / f"top_reviewers_eval_top{top_n}.csv", index=False
+        )
+        if not eval_diversity_df.empty:
+            eval_diversity_summary.append(eval_diversity_df.assign(top_n=top_n))
+        eval_plot = plot_eval_diversity(eval_diversity_df, top_n)
+        print(
+            "Saved evaluation diversity metrics to "
+            f"{OUTPUT_DIR / f'reviewer_diversity_eval_top{top_n}.csv'}"
+        )
+        print(
+            "Saved evaluation top reviewer table to "
+            f"{OUTPUT_DIR / f'top_reviewers_eval_top{top_n}.csv'}"
+        )
+        print(f"Saved evaluation diversity plot to {eval_plot}")
+
+    if eval_diversity_summary:
+        summary_df = pd.concat(eval_diversity_summary, ignore_index=True)
+        summary_df.to_csv(
+            OUTPUT_DIR / "reviewer_diversity_eval_summary.csv", index=False
+        )
+        print(
+            "Saved evaluation diversity summary to "
+            f"{OUTPUT_DIR / 'reviewer_diversity_eval_summary.csv'}"
+        )
 
     hit_rate_df = collect_hit_rate_trends()
     hit_rate_df.to_csv(OUTPUT_DIR / "hit_rate_trends.csv", index=False)
 
-    diversity_plot = plot_diversity(diversity_df)
-    eval_diversity_plot = plot_eval_diversity(eval_diversity_df, EVAL_TOP_N)
+    diversity_plot: Path | None = None
+    if selected_diversity_df is not None:
+        diversity_plot = plot_diversity(selected_diversity_df)
+        print(f"Saved diversity plot to {diversity_plot}")
+
     hit_rate_plot = plot_hit_rates(hit_rate_df)
 
-    print(f"Saved diversity metrics to {OUTPUT_DIR / 'reviewer_diversity_train.csv'}")
-    print(f"Saved top reviewer table to {OUTPUT_DIR / 'top_reviewers_train.csv'}")
-    print(
-        "Saved evaluation diversity metrics to "
-        f"{OUTPUT_DIR / f'reviewer_diversity_eval_top{EVAL_TOP_N}.csv'}"
-    )
-    print(
-        "Saved evaluation top reviewer table to "
-        f"{OUTPUT_DIR / f'top_reviewers_eval_top{EVAL_TOP_N}.csv'}"
-    )
     print(f"Saved hit rate metrics to {OUTPUT_DIR / 'hit_rate_trends.csv'}")
-    print(f"Saved diversity plot to {diversity_plot}")
-    print(f"Saved evaluation diversity plot to {eval_diversity_plot}")
     print(f"Saved evaluation hit rate plot to {hit_rate_plot}")
 
 
