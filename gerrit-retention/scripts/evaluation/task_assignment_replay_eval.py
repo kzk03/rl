@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 from datetime import datetime, timedelta
@@ -17,6 +18,22 @@ from gerrit_retention.rl_environment.multi_reviewer_assignment_env import (
     Candidate,
     MultiReviewerAssignmentEnv,
 )
+
+CSV_COLUMNS = [
+    'window',
+    'change_id',
+    'timestamp',
+    'candidate_rank',
+    'candidate_index',
+    'reviewer_id',
+    'score',
+    'probability',
+    'is_positive',
+    'selected',
+    'positive_reviewers',
+    'candidate_count',
+    'reward',
+]
 
 
 def _read_tasks(jsonl_path: Path) -> Tuple[List[AssignmentTask], List[str]]:
@@ -128,6 +145,8 @@ def evaluate_window_policy(
     reward_mode: str = 'match_gt',
     irl_model: Optional[Dict[str, Any]] = None,
     irl_temperature: Optional[float] = None,
+    window: Optional[str] = None,
+    csv_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     total_steps = len(tasks)
     if total_steps == 0:
@@ -232,6 +251,28 @@ def evaluate_window_policy(
             confs.append(top1_prob)
             corrects.append(top1_correct)
 
+            if csv_rows is not None:
+                positive_serialized = ';'.join(str(rid) for rid in sorted(pos_set)) if pos_set else ''
+                logits_list = cand_logits.detach().cpu().tolist()
+                prob_list = probs.detach().cpu().tolist()
+                for rank, idx in enumerate(sorted_idx, start=1):
+                    rid = cand_ids[idx]
+                    csv_rows.append({
+                        'window': window,
+                        'change_id': cur_task.change_id,
+                        'timestamp': cur_task.timestamp,
+                        'candidate_rank': rank,
+                        'candidate_index': idx,
+                        'reviewer_id': rid,
+                        'score': float(logits_list[idx]) if idx < len(logits_list) else None,
+                        'probability': float(prob_list[idx]) if idx < len(prob_list) else None,
+                        'is_positive': int(rid in pos_set),
+                        'selected': int(idx == action),
+                        'positive_reviewers': positive_serialized,
+                        'candidate_count': k,
+                        'reward': float(reward) if reward is not None else None,
+                    })
+
             done = bool(terminated or truncated)
             pbar.update(1)
 
@@ -277,6 +318,8 @@ def evaluate_window_irl(
     feat_order: List[str],
     irl_model: Dict[str, Any],
     temperature: float = 1.0,
+    window: Optional[str] = None,
+    csv_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     total = 0
     top_matches = 0
@@ -351,6 +394,28 @@ def evaluate_window_irl(
         confs.append(float(probs[top_idx]))
         corrects.append(int(cand_ids[top_idx] in pos_set))
 
+        if csv_rows is not None:
+            positive_serialized = ';'.join(str(rid) for rid in sorted(pos_set)) if pos_set else ''
+            util_list = util.tolist()
+            prob_list = probs.tolist()
+            for rank, idx in enumerate(sorted_idx, start=1):
+                rid = cand_ids[int(idx)]
+                csv_rows.append({
+                    'window': window,
+                    'change_id': task.change_id,
+                    'timestamp': task.timestamp,
+                    'candidate_rank': rank,
+                    'candidate_index': int(idx),
+                    'reviewer_id': rid,
+                    'score': float(util_list[int(idx)]) if int(idx) < len(util_list) else None,
+                    'probability': float(prob_list[int(idx)]) if int(idx) < len(prob_list) else None,
+                    'is_positive': int(rid in pos_set),
+                    'selected': int(idx == top_idx),
+                    'positive_reviewers': positive_serialized,
+                    'candidate_count': k,
+                    'reward': None,
+                })
+
     if total == 0:
         return {
             'steps': 0,
@@ -408,6 +473,7 @@ def main():
     ap.add_argument('--windows', type=str, default='train,1m,3m,6m,12m',
                     help='評価ウィンドウ（例: 1m, 3m-6m, -12m-0m）。負の値を使うとカットオフ以前（学習期間）を指定できます。')
     ap.add_argument('--out', type=str, default='outputs/task_assign/replay_eval.json')
+    ap.add_argument('--csv-dir', type=str, default=None, help='ウィンドウごとの推薦結果をCSVとして出力するディレクトリ。指定しない場合は保存しません。')
     ap.add_argument('--reward-mode', type=str, default='match_gt',
                     choices=['match_gt','irl_softmax','accept_prob','irl_logprob','hybrid_match_irl','irl_entropy_bonus'],
                     help='Environment reward mode for evaluation.')
@@ -456,12 +522,18 @@ def main():
 
     results: Dict[str, Any] = {}
     windows_list = [w.strip() for w in args.windows.split(',') if w.strip()]
+    csv_dir: Optional[Path] = Path(args.csv_dir) if args.csv_dir else None
+    if csv_dir is not None:
+        csv_dir.mkdir(parents=True, exist_ok=True)
+    csv_outputs: Dict[str, str] = {}
+
     for w in tqdm(windows_list, desc='windows'):
         subset = _filter_by_window(all_tasks, cutoff, w)
         if not subset:
             results[w] = {'steps': 0, 'action_match_rate': None}
             continue
 
+        csv_rows: Optional[List[Dict[str, Any]]] = [] if csv_dir is not None else None
         if eval_mode == 'policy':
             res = evaluate_window_policy(
                 subset,
@@ -471,6 +543,8 @@ def main():
                 reward_mode=reward_mode,
                 irl_model=irl_model,
                 irl_temperature=irl_temperature,
+                window=w,
+                csv_rows=csv_rows,
             )
         else:
             res = evaluate_window_irl(
@@ -478,8 +552,20 @@ def main():
                 feat_order,
                 irl_model,
                 temperature=float(irl_temperature if irl_temperature is not None else 1.0),
+                window=w,
+                csv_rows=csv_rows,
             )
         results[w] = res
+
+        if csv_dir is not None and csv_rows is not None:
+            csv_path = csv_dir / f'{w}.csv'
+            with csv_path.open('w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=CSV_COLUMNS)
+                writer.writeheader()
+                for row in csv_rows:
+                    writer.writerow(row)
+            res['csv_path'] = str(csv_path)
+            csv_outputs[w] = str(csv_path)
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     meta_out = {
@@ -488,6 +574,7 @@ def main():
         'eval_mode': eval_mode,
         'irl_model_used': bool(irl_model is not None),
         'results': results,
+        'csv_outputs': csv_outputs if csv_outputs else None,
     }
     Path(args.out).write_text(json.dumps(meta_out, ensure_ascii=False, indent=2))
     print(json.dumps({'out': args.out, 'windows': results, 'reward_mode': reward_mode_used}, ensure_ascii=False))
