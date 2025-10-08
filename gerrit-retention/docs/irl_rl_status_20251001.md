@@ -216,7 +216,7 @@
 - 入力データ: `outputs/irl/reviewer_sequences.json` と `data/processed/unified/all_reviews.json` が存在していること。
 - すべてのコマンドは `uv run` で実行し、カレントディレクトリはリポジトリルートとする。
 
-### A. 新特徴量版（HEAD=84c1fa1, registry 37 features）
+### A. Top-1 重視ベース版（HEAD=refactor, registry 8 features / 12dims）
 
 1. ブランチを最新に揃える。
 
@@ -240,7 +240,7 @@ uv run python scripts/offline/build_task_assignment_from_sequences.py \
   --seed 42
 ```
 
-- 出力: `tasks_train.jsonl` 12,493 件中 12,259 件が学習に利用。`tasks_meta.json` の `registry_features_loaded` が 37 件であることを確認。
+- 出力: `tasks_train.jsonl` 12,493 件中 12,259 件が学習に利用。`tasks_meta.json` の `registry_features_loaded` は 8 件（`avg_response_latency_hours` は pending のまま未生成）で、path\_\* 系を無効化してベース指標＋オーナー履歴中心の構成になっていることを確認。
 
 3. IRL モデル再学習。
 
@@ -248,7 +248,7 @@ uv run python scripts/offline/build_task_assignment_from_sequences.py \
 uv run python scripts/training/irl/train_task_candidate_irl.py \
   --train-tasks outputs/task_assign_nova_cut2023/tasks_train.jsonl \
   --out outputs/task_assign_nova_cut2023/irl_model.json \
-  --iters 400 --lr 0.1 --reg 1e-4 --l1 0.001 --temperature 0.8
+  --iters 400 --lr 0.1 --reg 1e-4 --l1 0.0 --temperature 0.8
 ```
 
 4. リプレイ評価（IRL 直接順位）。
@@ -262,7 +262,15 @@ uv run python scripts/evaluation/task_assignment_replay_eval.py \
   --out outputs/task_assign_nova_cut2023/replay_eval_irl.json
 ```
 
-- 指標例（12m ウィンドウ）: Top-1=0.151, Top-3=0.396, Top-5=0.563, mAP=0.347。
+- 指標例（12m ウィンドウ）: Top-1≈0.211, Top-3≈0.438, Top-5≈0.558, mAP≈0.381。
+
+#### 削除した特徴量と判断メモ
+
+- `change_*` 一式（ファイル件数・挿入/削除量・ドキュメントテスト比率・subject 統計など）: 新旧モデル比較で絶対値 $|w|<10^{-4}$ が続き、L1 正則化でほぼ 0 に収束。候補特徴に残してもノイズが増えるだけだったためレジストリから除外（前回と同様）。
+- `path_*` 一式（Jaccard/overlap/tfidf）: Top-3 を押し上げる一方で Top-1 を押し下げる傾向が顕著だったため今回無効化。path 連動の判断を復活させたい場合は部分的に戻してから L1 を調整する。
+- `backlog_open_reviews` / `historical_accept_ratio` / `active_hour_match`: meta 更新不足で依然ゼロに張り付くため非採用。
+- 現行は registry 8 エントリ＋ベース特徴で 12 次元、L1=0.0 に設定し直近タスクで Top-1≈0.211 まで回復（Top-3≈0.438, mAP≈0.381）。
+- 再生成 → 再学習 → リプレイ評価を再実行済み（`tasks_meta.json` / `irl_model.json` / `replay_eval_irl.json` に反映）。
 
 ### B. 旧ベースライン版（commit 515d1a8, registry 未導入）
 
@@ -350,12 +358,17 @@ git worktree remove ../gerrit-retention-baseline --force  # 任意
 
 - 指標比較サマリ
 
-  | モデル                      | 特徴次元 | 12m Top-1 | 12m Top-3 | 12m mAP | eval JSON                                                        |
-  | --------------------------- | -------- | --------- | --------- | ------- | ---------------------------------------------------------------- |
-  | baseline (515d1a8)          | 17       | ≈0.219    | ≈0.331    | ≈0.337  | `outputs/task_assign_nova_cut2023_baseline/replay_eval_irl.json` |
-  | feature-expansion (84c1fa1) | 41       | 0.151     | 0.396     | 0.347   | `outputs/task_assign_nova_cut2023/replay_eval_irl.json`          |
+  | モデル                           | 特徴次元 | 12m Top-1 | 12m Top-3 | 12m mAP | eval JSON                                                        |
+  | -------------------------------- | -------- | --------- | --------- | ------- | ---------------------------------------------------------------- |
+  | top1-lite (refactor, current)    | 12       | 0.211     | 0.438     | 0.381   | `outputs/task_assign_nova_cut2023/replay_eval_irl.json`          |
+  | baseline (515d1a8)               | 17       | ≈0.219    | ≈0.331    | ≈0.337  | `outputs/task_assign_nova_cut2023_baseline/replay_eval_irl.json` |
+  | feature-expansion (84c1fa1)\*    | 41       | 0.151     | 0.396     | 0.347   | _(要: 同コミットで再生成)_                                       |
+  | path-trim (refactor, 2025-10-07) | 17       | 0.149     | 0.377     | 0.326   | _(archived metrics)_                                             |
 
-- 新特徴量版は Top-1 が低下する一方で Top-3/Top-5 や mAP が改善している。位置決定重みを維持したい場合は L1 を弱める、もしくは change\_\* 系特徴を RL 方策専用に切り出すのが次の改善案。
+- top1-lite 版は特徴次元を 12 に絞り L1=0 とすることで Top-1 を 0.211 まで回復（Top-3=0.438, mAP=0.381）。Top-3/Top-5 は baseline より高い水準を維持。
+- baseline はなお Top-1 で僅差優勢（≈0.219）だが、top1-lite は owner ペアとベース指標だけでほぼ追いつく。
+- `feature-expansion (84c1fa1)` は過去比較用の記録であり、再現する場合は該当コミットでレジストリを復元して再生成する。
+- path-trim (2025-10-07 時点) は Top-3 重視ケースとして残し、必要に応じて切り替え可能。
 
 ---
 
