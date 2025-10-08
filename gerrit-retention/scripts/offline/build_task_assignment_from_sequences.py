@@ -103,6 +103,35 @@ def _iter_records(path: Path) -> Iterator[Dict[str, Any]]:
                     yield obj
 
 
+_SERVICE_ACCOUNT_TOKENS: Tuple[str, ...] = (
+    'zuul',
+    'jenkins',
+    'buildbot',
+    'automation',
+    'ci@',
+    'ci.',
+    'ci-',
+    'bot@',
+    'bot.',
+    'bot-',
+    'openstack-ci',
+    'openstack-infra',
+    'gerrit system',
+)
+
+
+def _is_service_account(rid: Optional[str]) -> bool:
+    if not rid:
+        return False
+    rid_lower = str(rid).lower()
+    if rid_lower in {'zuul', 'jenkins', 'buildbot'}:
+        return True
+    for token in _SERVICE_ACCOUNT_TOKENS:
+        if token in rid_lower:
+            return True
+    return False
+
+
 def _dir_tokens(paths: List[str]) -> Tuple[Set[str], Set[str]]:
     dir1: Set[str] = set()
     dir2: Set[str] = set()
@@ -432,7 +461,8 @@ def build_tasks_from_sequences(
     # load minimal in-memory index for candidate sampling
     seqs: List[Dict[str, Any]] = list(_iter_records(input_path))
     reviewer_ids = [rec.get('reviewer_id') or rec.get('developer_id') for rec in seqs if (rec.get('reviewer_id') or rec.get('developer_id'))]
-    reviewer_ids = list(dict.fromkeys([rid for rid in reviewer_ids if rid]))
+    reviewer_ids = [rid for rid in reviewer_ids if rid and not _is_service_account(rid)]
+    reviewer_ids = list(dict.fromkeys(reviewer_ids))
     reviewer_id_set = set(reviewer_ids)
 
     project_filter_set: Optional[Set[str]] = None
@@ -511,7 +541,8 @@ def build_tasks_from_sequences(
             ts, dev = events[idx]
             if ts > when:
                 break
-            active.append(dev)
+            if dev and not _is_service_account(dev):
+                active.append(dev)
             idx += 1
         return list(dict.fromkeys(active))
 
@@ -671,6 +702,8 @@ def build_tasks_from_sequences(
         with open(outp, 'w', encoding='utf-8') as wf:
             for rec in seqs:
                 rid = rec.get('reviewer_id') or rec.get('developer_id') or 'unknown@example.com'
+                if _is_service_account(rid):
+                    continue
                 trans = rec.get('transitions') or []
                 # Build indexes for registry features (events & first_seen)
                 # (We compute lazily only once when first transition encountered per reviewer)
@@ -717,6 +750,8 @@ def build_tasks_from_sequences(
                     active_pool = list(dict.fromkeys(active_pool))
                     for candidate_id in active_pool:
                         if not candidate_id:
+                            continue
+                        if _is_service_account(candidate_id):
                             continue
                         cand_lower = candidate_id.lower()
                         if cand_lower == rid_lower:
