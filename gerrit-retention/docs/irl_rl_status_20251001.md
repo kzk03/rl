@@ -206,6 +206,172 @@
 
 ---
 
+## 2025-10-07 Nova Task Assignment IRL 再現レシピ
+
+> 目的: `outputs/task_assign_nova_cut2023` に保存した **新特徴量版 (2025-10-07)** と、`irl_model_prev.json` に対応する **旧ベースライン版** の両方を再現できるよう、作業ブックマークとコマンドをまとめる。
+
+### 共通準備
+
+- 依存関係: ルートで `uv sync` 済みであること。
+- 入力データ: `outputs/irl/reviewer_sequences.json` と `data/processed/unified/all_reviews.json` が存在していること。
+- すべてのコマンドは `uv run` で実行し、カレントディレクトリはリポジトリルートとする。
+
+### A. Top-1 重視ベース版（HEAD=refactor, registry 8 features / 12dims）
+
+1. ブランチを最新に揃える。
+
+```bash
+git checkout refactor
+git pull
+```
+
+2. タスクデータセット生成。
+
+```bash
+uv run python scripts/offline/build_task_assignment_from_sequences.py \
+  --input outputs/irl/reviewer_sequences.json \
+  --cutoff 2023-07-01T00:00:00 \
+  --outdir outputs/task_assign_nova_cut2023 \
+  --candidate-sampling time-local \
+  --candidate-window-days 60 \
+  --train-window-months 24 \
+  --eval-window-months 24 \
+  --project openstack/nova \
+  --seed 42
+```
+
+- 出力: `tasks_train.jsonl` 12,493 件中 12,259 件が学習に利用。`tasks_meta.json` の `registry_features_loaded` は 8 件（`avg_response_latency_hours` は pending のまま未生成）で、path\_\* 系を無効化してベース指標＋オーナー履歴中心の構成になっていることを確認。
+
+3. IRL モデル再学習。
+
+```bash
+uv run python scripts/training/irl/train_task_candidate_irl.py \
+  --train-tasks outputs/task_assign_nova_cut2023/tasks_train.jsonl \
+  --out outputs/task_assign_nova_cut2023/irl_model.json \
+  --iters 400 --lr 0.1 --reg 1e-4 --l1 0.0 --temperature 0.8
+```
+
+4. リプレイ評価（IRL 直接順位）。
+
+```bash
+uv run python scripts/evaluation/task_assignment_replay_eval.py \
+  --tasks outputs/task_assign_nova_cut2023/tasks_eval.jsonl \
+  --cutoff 2023-07-01T00:00:00 \
+  --irl-model outputs/task_assign_nova_cut2023/irl_model.json \
+  --eval-mode irl \
+  --out outputs/task_assign_nova_cut2023/replay_eval_irl.json
+```
+
+- 指標例（12m ウィンドウ）: Top-1≈0.211, Top-3≈0.438, Top-5≈0.558, mAP≈0.381。
+
+#### 削除した特徴量と判断メモ
+
+- `change_*` 一式（ファイル件数・挿入/削除量・ドキュメントテスト比率・subject 統計など）: 新旧モデル比較で絶対値 $|w|<10^{-4}$ が続き、L1 正則化でほぼ 0 に収束。候補特徴に残してもノイズが増えるだけだったためレジストリから除外（前回と同様）。
+- `path_*` 一式（Jaccard/overlap/tfidf）: Top-3 を押し上げる一方で Top-1 を押し下げる傾向が顕著だったため今回無効化。path 連動の判断を復活させたい場合は部分的に戻してから L1 を調整する。
+- `backlog_open_reviews` / `historical_accept_ratio` / `active_hour_match`: meta 更新不足で依然ゼロに張り付くため非採用。
+- 現行は registry 8 エントリ＋ベース特徴で 12 次元、L1=0.0 に設定し直近タスクで Top-1≈0.211 まで回復（Top-3≈0.438, mAP≈0.381）。
+- 再生成 → 再学習 → リプレイ評価を再実行済み（`tasks_meta.json` / `irl_model.json` / `replay_eval_irl.json` に反映）。
+
+### B. 旧ベースライン版（commit 515d1a8, registry 未導入）
+
+> 新旧を同一ワークツリーで混在させないため、以下では **作業用ワークツリーを追加** する手順を推奨する。別ディレクトリの用意が難しい場合は、対象ファイルのみ `git checkout 515d1a8 -- <path>` で切り戻し、完了後に `git restore` で戻すこと。
+
+1. ワークツリー作成または切り戻し。
+
+```bash
+git worktree add ../gerrit-retention-baseline 515d1a8
+cd ../gerrit-retention-baseline
+```
+
+（単一ツリーで作業する場合）
+
+```bash
+git checkout 515d1a8
+```
+
+2. ベースラインタスク生成（出力先は衝突防止のため別ディレクトリに変更）。
+
+```bash
+uv run python scripts/offline/build_task_assignment_from_sequences.py \
+  --input outputs/irl/reviewer_sequences.json \
+  --cutoff 2023-07-01T00:00:00 \
+  --outdir outputs/task_assign_nova_cut2023_baseline \
+  --candidate-sampling time-local \
+  --candidate-window-days 60 \
+  --train-window-months 24 \
+  --eval-window-months 24 \
+  --project openstack/nova \
+  --seed 42
+```
+
+- このコミットではフィーチャーレジストリが存在しないため、各候補の特徴量は 17 次元（activity/gap/workload 系 + reviewer_tenure 等）のみ。
+
+3. IRL モデル学習（係数 17 次元 + バイアス）。
+
+```bash
+uv run python scripts/training/irl/train_task_candidate_irl.py \
+  --train-tasks outputs/task_assign_nova_cut2023_baseline/tasks_train.jsonl \
+  --out outputs/task_assign_nova_cut2023_baseline/irl_model.json \
+  --iters 400 --lr 0.1 --reg 1e-4 --l1 0.001 --temperature 0.8
+```
+
+4. リプレイ評価。
+
+```bash
+uv run python scripts/evaluation/task_assignment_replay_eval.py \
+  --tasks outputs/task_assign_nova_cut2023_baseline/tasks_eval.jsonl \
+  --cutoff 2023-07-01T00:00:00 \
+  --irl-model outputs/task_assign_nova_cut2023_baseline/irl_model.json \
+  --eval-mode irl \
+  --out outputs/task_assign_nova_cut2023_baseline/replay_eval_irl.json
+```
+
+- 指標例（12m ウィンドウ）: Top-1≈0.219, Top-3≈0.331, Top-5≈0.400, mAP≈0.337。
+
+5. 現行ブランチへ戻る。
+
+```bash
+cd ../gerrit-retention   # worktreeを使った場合
+git checkout refactor    # 単一ツリーの場合
+git worktree remove ../gerrit-retention-baseline --force  # 任意
+```
+
+### C. 追加メモ
+
+- 比較用に HEAD 側では `outputs/task_assign_nova_cut2023/irl_model_prev.json` を保持しており、旧モデルの θ を直接参照できる。
+- 係数差分を再確認するには以下のスクリプトを利用。
+
+  ```bash
+  uv run python - <<'PY'
+  import json
+  from pathlib import Path
+  new = json.loads(Path('outputs/task_assign_nova_cut2023/irl_model.json').read_text())
+  old = json.loads(Path('outputs/task_assign_nova_cut2023/irl_model_prev.json').read_text())
+  shared = [f for f in old['feature_order'] if f in new['feature_order']]
+  print('feature,old,new')
+  for name in shared:
+    oi = old['feature_order'].index(name)
+    ni = new['feature_order'].index(name)
+    print(f"{name},{old['theta'][oi]:.3f},{new['theta'][ni]:.3f}")
+  PY
+  ```
+
+- 指標比較サマリ
+
+  | モデル                           | 特徴次元 | 12m Top-1 | 12m Top-3 | 12m mAP | eval JSON                                                        |
+  | -------------------------------- | -------- | --------- | --------- | ------- | ---------------------------------------------------------------- |
+  | top1-lite (refactor, current)    | 12       | 0.211     | 0.438     | 0.381   | `outputs/task_assign_nova_cut2023/replay_eval_irl.json`          |
+  | baseline (515d1a8)               | 17       | ≈0.219    | ≈0.331    | ≈0.337  | `outputs/task_assign_nova_cut2023_baseline/replay_eval_irl.json` |
+  | feature-expansion (84c1fa1)\*    | 41       | 0.151     | 0.396     | 0.347   | _(要: 同コミットで再生成)_                                       |
+  | path-trim (refactor, 2025-10-07) | 17       | 0.149     | 0.377     | 0.326   | _(archived metrics)_                                             |
+
+- top1-lite 版は特徴次元を 12 に絞り L1=0 とすることで Top-1 を 0.211 まで回復（Top-3=0.438, mAP=0.381）。Top-3/Top-5 は baseline より高い水準を維持。
+- baseline はなお Top-1 で僅差優勢（≈0.219）だが、top1-lite は owner ペアとベース指標だけでほぼ追いつく。
+- `feature-expansion (84c1fa1)` は過去比較用の記録であり、再現する場合は該当コミットでレジストリを復元して再生成する。
+- path-trim (2025-10-07 時点) は Top-3 重視ケースとして残し、必要に応じて切り替え可能。
+
+---
+
 ## 参考: 「2) 既存 PPO」と「4) IRL 報酬 PPO」の違い（要点）
 
 - 報酬設計

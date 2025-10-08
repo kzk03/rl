@@ -33,15 +33,7 @@ features:
     leakage_guard: none
     type: numeric
     derived_from: [activity30, gap_days]
-  # Placeholders for later phases (not computed yet)
-  - name: backlog_open_reviews
-    phase: 1
-    status: experimental
-    description: Approx open reviews count (state.open_reviews if available else workload*activity30 heuristic)
-  - name: historical_accept_ratio
-    phase: 1
-    status: experimental
-    description: Accepted transitions / all transitions before timestamp (capped, min denom=3)
+  # Phase 1+ extended features (non change-level)
   - name: avg_response_latency_hours
     phase: 1
     status: pending
@@ -50,18 +42,11 @@ features:
     phase: 1
     status: experimental
     description: Past 180d assignments between owner and reviewer (requires owner id in sequence)
-  - name: path_tfidf_cosine_recent30
-    phase: 1
-    status: experimental
-    description: Improved TF-IDF cosine (dir1+dir2 tokens, normalized TF, 30d window)
-  - name: active_hour_match
-    phase: 1
-    status: experimental
-    description: 1 if current hour within top frequent active hours (last 30d) for reviewer
-  - name: path_jaccard_dir2_180d
+  - name: path_overlap_ratio_dir2_180d
     phase: 2
     status: experimental
-    description: Jaccard similarity of dir2 path segments between current change and reviewer history (<=180d)
+    description: Dir2 token overlap ratio between current change paths and reviewer history (<=180d)
+    type: ratio
   - name: owner_reviewer_past_assignments_180d_log1p
     phase: 2
     status: experimental
