@@ -1,7 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
-base_dir = Path("/Users/kazuki-h/rl/gerrit-retention/outputs/task_assign_cut2023/replay_csv_train")
+base_dir = Path("/Users/kazuki-h/rl/gerrit-retention/outputs/task_assign_nova_botless/replay_csv")
 csv_files = base_dir.glob("*.csv")
 
 for input_path in csv_files:

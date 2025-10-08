@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import yaml
+from tqdm import tqdm
 
 
 def _parse_iso(ts: str) -> datetime:
@@ -480,7 +481,7 @@ def build_tasks_from_sequences(
 
     # Build per-reviewer time-indexed states for time-local features
     by_reviewer: Dict[str, List[Tuple[datetime, Dict[str, Any]]]] = {}
-    for rec in seqs:
+    for rec in tqdm(seqs, desc='index:states', unit='rec', leave=False):
         rid = rec.get('reviewer_id') or rec.get('developer_id')
         if not rid:
             continue
@@ -573,7 +574,7 @@ def build_tasks_from_sequences(
             return None
         return meta_list[0]
 
-    for rec in seqs:
+    for rec in tqdm(seqs, desc='index:meta', unit='rec', leave=False):
         rid_main = rec.get('reviewer_id') or rec.get('developer_id') or 'unknown@example.com'
         trans = rec.get('transitions') or []
         rid_lower = rid_main.lower()
@@ -700,7 +701,7 @@ def build_tasks_from_sequences(
         outp = out_dir / f"tasks_{phase}.jsonl"
         n = 0
         with open(outp, 'w', encoding='utf-8') as wf:
-            for rec in seqs:
+            for rec in tqdm(seqs, desc=f'{phase}:records', unit='rec', leave=False):
                 rid = rec.get('reviewer_id') or rec.get('developer_id') or 'unknown@example.com'
                 if _is_service_account(rid):
                     continue
