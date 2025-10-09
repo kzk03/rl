@@ -137,6 +137,25 @@ def _apply_scaler(x: np.ndarray, scaler: Optional[Dict[str, Any]]) -> np.ndarray
     return x
 
 
+def _compute_ece(confs: List[float], corrects: List[int], bins: int = 10) -> Optional[float]:
+    if not confs:
+        return None
+    conf_arr = np.array(confs, dtype=np.float64)
+    corr_arr = np.array(corrects, dtype=np.float64)
+    bin_inds = np.clip((conf_arr * bins).astype(int), 0, bins - 1)
+    ece = 0.0
+    total = len(conf_arr)
+    for b in range(bins):
+        mask = (bin_inds == b)
+        if not np.any(mask):
+            continue
+        conf_bin = float(np.mean(conf_arr[mask]))
+        acc_bin = float(np.mean(corr_arr[mask]))
+        weight = float(np.sum(mask)) / total
+        ece += weight * abs(acc_bin - conf_bin)
+    return ece
+
+
 def evaluate_window_policy(
     tasks: List[AssignmentTask],
     feat_order: List[str],
@@ -201,6 +220,10 @@ def evaluate_window_policy(
     ap_list: List[float] = []
     confs: List[float] = []
     corrects: List[int] = []
+    precision_acc: Dict[int, List[float]] = {k: [] for k in (1, 3, 5)}
+    recall_acc: Dict[int, List[float]] = {k: [] for k in (1, 3, 5)}
+    coverage_hits = 0
+    positives_tasks = 0
 
     with tqdm(total=total_steps, desc='eval', leave=False) as pbar:
         while not done:
@@ -233,7 +256,8 @@ def evaluate_window_policy(
             cand_ids = [c.reviewer_id for c in cur_task.candidates[:k]]
             sorted_idx = torch.argsort(cand_logits, dim=-1, descending=True).tolist()
             pos_indices = [i for i, rid in enumerate(cand_ids) if rid in pos_set]
-            if pos_indices:
+            pos_count = len(pos_indices)
+            if pos_count:
                 if any(i in sorted_idx[:min(3, k)] for i in pos_indices):
                     top3_hits += 1
                 if any(i in sorted_idx[:min(5, k)] for i in pos_indices):
@@ -245,6 +269,15 @@ def evaluate_window_policy(
                         hits += 1
                         prec_sum += hits / rank
                 ap_list.append(prec_sum / max(1, len(pos_indices)))
+                positives_tasks += 1
+                coverage_hits += int(any(idx in pos_indices for idx in sorted_idx[:min(5, k)]))
+                for topk in (1, 3, 5):
+                    limit = min(topk, k)
+                    if limit == 0:
+                        continue
+                    hits_k = sum(1 for idx in sorted_idx[:limit] if idx in pos_indices)
+                    precision_acc[topk].append(hits_k / float(limit))
+                    recall_acc[topk].append(hits_k / float(pos_count))
             # calibration collection
             top1_prob = float(probs[action]) if k > action else 0.0
             top1_correct = 1 if action in pos_indices else 0
@@ -281,23 +314,9 @@ def evaluate_window_policy(
     top3_rate = top3_hits / max(1, total)
     top5_rate = top5_hits / max(1, total)
     mAP = float(np.mean(ap_list)) if ap_list else 0.0
-    # ECE
-    if confs:
-        bins = 10
-        bin_inds = np.clip((np.array(confs) * bins).astype(int), 0, bins - 1)
-        ece = 0.0
-        conf_arr = np.array(confs)
-        corr_arr = np.array(corrects)
-        for b in range(bins):
-            mask = (bin_inds == b)
-            if not np.any(mask):
-                continue
-            conf_bin = float(np.mean(conf_arr[mask]))
-            acc_bin = float(np.mean(corr_arr[mask]))
-            weight = float(np.sum(mask)) / len(conf_arr)
-            ece += weight * abs(acc_bin - conf_bin)
-    else:
-        ece = None
+    ece = _compute_ece(confs, corrects)
+
+    coverage_rate = coverage_hits / max(1, positives_tasks)
 
     return {
         'steps': total,
@@ -310,6 +329,13 @@ def evaluate_window_policy(
         'top5_hit_rate': top5_rate,
         'mAP': mAP,
         'ECE': ece,
+        'precision_at_1': float(np.mean(precision_acc[1])) if precision_acc[1] else None,
+        'precision_at_3': float(np.mean(precision_acc[3])) if precision_acc[3] else None,
+        'precision_at_5': float(np.mean(precision_acc[5])) if precision_acc[5] else None,
+        'recall_at_1': float(np.mean(recall_acc[1])) if recall_acc[1] else None,
+        'recall_at_3': float(np.mean(recall_acc[3])) if recall_acc[3] else None,
+        'recall_at_5': float(np.mean(recall_acc[5])) if recall_acc[5] else None,
+        'positive_coverage': coverage_rate,
     }
 
 
@@ -330,6 +356,10 @@ def evaluate_window_irl(
     ap_list: List[float] = []
     confs: List[float] = []
     corrects: List[int] = []
+    precision_acc: Dict[int, List[float]] = {k: [] for k in (1, 3, 5)}
+    recall_acc: Dict[int, List[float]] = {k: [] for k in (1, 3, 5)}
+    coverage_hits = 0
+    positives_tasks = 0
 
     theta = np.asarray(irl_model.get('theta'), dtype=np.float64)
     scaler = irl_model.get('scaler')
@@ -379,7 +409,8 @@ def evaluate_window_irl(
 
         sorted_idx = np.argsort(-probs)
         pos_indices = [i for i, rid in enumerate(cand_ids) if rid in pos_set]
-        if pos_indices:
+        pos_count = len(pos_indices)
+        if pos_count:
             if any(i in sorted_idx[:min(3, k)] for i in pos_indices):
                 top3_hits += 1
             if any(i in sorted_idx[:min(5, k)] for i in pos_indices):
@@ -391,6 +422,15 @@ def evaluate_window_irl(
                     hits += 1
                     prec_sum += hits / rank
             ap_list.append(prec_sum / max(1, len(pos_indices)))
+            positives_tasks += 1
+            coverage_hits += int(any(idx in pos_indices for idx in sorted_idx[:min(5, k)]))
+            for topk in (1, 3, 5):
+                limit = min(topk, k)
+                if limit == 0:
+                    continue
+                hits_k = sum(1 for idx in sorted_idx[:limit] if idx in pos_indices)
+                precision_acc[topk].append(hits_k / float(limit))
+                recall_acc[topk].append(hits_k / float(pos_count))
         confs.append(float(probs[top_idx]))
         corrects.append(int(cand_ids[top_idx] in pos_set))
 
@@ -436,19 +476,9 @@ def evaluate_window_irl(
     top5_rate = top5_hits / max(1, total)
     mAP = float(np.mean(ap_list)) if ap_list else 0.0
 
-    bins = 10
-    conf_arr = np.array(confs)
-    corr_arr = np.array(corrects)
-    bin_inds = np.clip((conf_arr * bins).astype(int), 0, bins - 1)
-    ece = 0.0
-    for b in range(bins):
-        mask = bin_inds == b
-        if not np.any(mask):
-            continue
-        conf_bin = float(np.mean(conf_arr[mask]))
-        acc_bin = float(np.mean(corr_arr[mask]))
-        weight = float(np.sum(mask)) / len(conf_arr)
-        ece += weight * abs(acc_bin - conf_bin)
+    ece = _compute_ece(confs, corrects)
+
+    coverage_rate = coverage_hits / max(1, positives_tasks)
 
     return {
         'steps': total,
@@ -461,6 +491,13 @@ def evaluate_window_irl(
         'top5_hit_rate': top5_rate,
         'mAP': mAP,
         'ECE': ece,
+        'precision_at_1': float(np.mean(precision_acc[1])) if precision_acc[1] else None,
+        'precision_at_3': float(np.mean(precision_acc[3])) if precision_acc[3] else None,
+        'precision_at_5': float(np.mean(precision_acc[5])) if precision_acc[5] else None,
+        'recall_at_1': float(np.mean(recall_acc[1])) if recall_acc[1] else None,
+        'recall_at_3': float(np.mean(recall_acc[3])) if recall_acc[3] else None,
+        'recall_at_5': float(np.mean(recall_acc[5])) if recall_acc[5] else None,
+        'positive_coverage': coverage_rate,
     }
 
 

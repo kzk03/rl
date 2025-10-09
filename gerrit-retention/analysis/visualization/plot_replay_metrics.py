@@ -63,10 +63,25 @@ def _load_json(json_path: Path) -> Dict[str, object]:
     return json.loads(json_path.read_text(encoding="utf-8"))
 
 
+def _has_values(values: Sequence[float | None]) -> bool:
+    return any(v is not None for v in values)
+
+
+def _append_metric(store: Dict[str, List[float | None]], key: str, value) -> None:
+    lst = store.setdefault(key, [])
+    if value is None:
+        lst.append(None)
+    else:
+        try:
+            lst.append(float(value))
+        except (TypeError, ValueError):
+            lst.append(None)
+
+
 def _collect_annual_data(
     specs: Sequence[AnnualSpec],
-) -> Tuple[List[str], Dict[str, List[float]], List[str]]:
-    metrics: Dict[str, List[float]] = {
+) -> Tuple[List[str], Dict[str, List[float | None]], List[str]]:
+    metrics: Dict[str, List[float | None]] = {
         "top1": [],
         "top3": [],
         "top5": [],
@@ -87,12 +102,19 @@ def _collect_annual_data(
         cutoff = data.get("cutoff")
         model_dir = spec.json_path.parent.name
         labels.append(spec.label)
-        metrics["top1"].append(float(entry.get("action_match_rate") or 0.0))
-        metrics["top3"].append(float(entry.get("top3_hit_rate") or 0.0))
-        metrics["top5"].append(float(entry.get("top5_hit_rate") or 0.0))
-        metrics["mAP"].append(float(entry.get("mAP") or 0.0))
-        metrics["ECE"].append(float(entry.get("ECE") or 0.0))
-        metrics["avg_candidates"].append(float(entry.get("avg_candidates") or 0.0))
+        _append_metric(metrics, "top1", entry.get("action_match_rate"))
+        _append_metric(metrics, "top3", entry.get("top3_hit_rate"))
+        _append_metric(metrics, "top5", entry.get("top5_hit_rate"))
+        _append_metric(metrics, "mAP", entry.get("mAP"))
+        _append_metric(metrics, "ECE", entry.get("ECE"))
+        _append_metric(metrics, "avg_candidates", entry.get("avg_candidates"))
+        _append_metric(metrics, "precision_at_1", entry.get("precision_at_1"))
+        _append_metric(metrics, "precision_at_3", entry.get("precision_at_3"))
+        _append_metric(metrics, "precision_at_5", entry.get("precision_at_5"))
+        _append_metric(metrics, "recall_at_1", entry.get("recall_at_1"))
+        _append_metric(metrics, "recall_at_3", entry.get("recall_at_3"))
+        _append_metric(metrics, "recall_at_5", entry.get("recall_at_5"))
+        _append_metric(metrics, "positive_coverage", entry.get("positive_coverage"))
         info_lines.append(
             f"{spec.label}: cutoff={cutoff}, window={spec.window}, model_dir={model_dir}"
         )
@@ -106,7 +128,7 @@ def _parse_window_start(window: str, pattern: str) -> int:
     return int(m.group("start"))
 
 
-def _collect_quarterly_data(spec: QuarterlySpec) -> Tuple[List[int], Dict[str, List[float]]]:
+def _collect_quarterly_data(spec: QuarterlySpec) -> Tuple[List[int], Dict[str, List[float | None]], str]:
     data = _load_json(spec.json_path)
     results = data.get("results", {})
     filtered = {
@@ -114,9 +136,30 @@ def _collect_quarterly_data(spec: QuarterlySpec) -> Tuple[List[int], Dict[str, L
         for window, entry in results.items()
         if re.match(spec.pattern, window)
     }
-    windows_sorted = sorted(filtered.keys(), key=lambda w: _parse_window_start(w, spec.pattern))
+    use_simple_month = False
+    if not filtered:
+        simple_pattern = r"^(?P<start>\d+)m$"
+        fallback = {
+            window: entry
+            for window, entry in results.items()
+            if re.match(simple_pattern, window)
+        }
+        if fallback:
+            filtered = fallback
+            use_simple_month = True
+    if not filtered:
+        raise KeyError(
+            f"指定パターン '{spec.pattern}' に一致するウィンドウが {spec.json_path} に存在しません。"
+        )
+
+    def _parse_window(window: str) -> int:
+        if use_simple_month:
+            return int(window.rstrip("m"))
+        return _parse_window_start(window, spec.pattern)
+
+    windows_sorted = sorted(filtered.keys(), key=_parse_window)
     months: List[int] = []
-    metrics: Dict[str, List[float]] = {
+    metrics: Dict[str, List[float | None]] = {
         "top1": [],
         "top3": [],
         "top5": [],
@@ -125,12 +168,19 @@ def _collect_quarterly_data(spec: QuarterlySpec) -> Tuple[List[int], Dict[str, L
     }
     for window in windows_sorted:
         entry = filtered[window]
-        months.append(_parse_window_start(window, spec.pattern))
-        metrics["top1"].append(float(entry.get("action_match_rate") or 0.0))
-        metrics["top3"].append(float(entry.get("top3_hit_rate") or 0.0))
-        metrics["top5"].append(float(entry.get("top5_hit_rate") or 0.0))
-        metrics["mAP"].append(float(entry.get("mAP") or 0.0))
-        metrics["ECE"].append(float(entry.get("ECE") or 0.0))
+        months.append(_parse_window(window))
+        _append_metric(metrics, "top1", entry.get("action_match_rate"))
+        _append_metric(metrics, "top3", entry.get("top3_hit_rate"))
+        _append_metric(metrics, "top5", entry.get("top5_hit_rate"))
+        _append_metric(metrics, "mAP", entry.get("mAP"))
+        _append_metric(metrics, "ECE", entry.get("ECE"))
+        _append_metric(metrics, "precision_at_1", entry.get("precision_at_1"))
+        _append_metric(metrics, "precision_at_3", entry.get("precision_at_3"))
+        _append_metric(metrics, "precision_at_5", entry.get("precision_at_5"))
+        _append_metric(metrics, "recall_at_1", entry.get("recall_at_1"))
+        _append_metric(metrics, "recall_at_3", entry.get("recall_at_3"))
+        _append_metric(metrics, "recall_at_5", entry.get("recall_at_5"))
+        _append_metric(metrics, "positive_coverage", entry.get("positive_coverage"))
     cutoff = data.get("cutoff")
     meta = (
         f"cutoff={cutoff}, windows matching '{spec.pattern}', model_dir={spec.json_path.parent.name}"
@@ -138,28 +188,63 @@ def _collect_quarterly_data(spec: QuarterlySpec) -> Tuple[List[int], Dict[str, L
     return months, metrics, meta
 
 
+def _plot_metric_series(ax, x, y_values, label, **plot_kwargs):
+    xs = [val for val, score in zip(x, y_values) if score is not None]
+    ys = [score for score in y_values if score is not None]
+    if not xs:
+        return
+    ax.plot(xs, ys, marker="o", label=label, **plot_kwargs)
+
+
 def _plot_annual(
     labels: Sequence[str],
-    metrics: Dict[str, List[float]],
+    metrics: Dict[str, List[float | None]],
     info_lines: Sequence[str],
     out_path: Path,
 ) -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(8, 8), sharex=True)
+    multilabel_keys = (
+        "precision_at_1",
+        "precision_at_3",
+        "precision_at_5",
+        "recall_at_1",
+        "recall_at_3",
+        "recall_at_5",
+        "positive_coverage",
+    )
+    has_multilabel = any(_has_values(metrics.get(key, [])) for key in multilabel_keys)
+    n_rows = 3 if has_multilabel else 2
+    fig, axes = plt.subplots(n_rows, 1, figsize=(8, 10 if has_multilabel else 8), sharex=True)
+    if n_rows == 1:
+        axes = [axes]
 
-    axes[0].plot(labels, metrics["top1"], marker="o", label="Top-1")
-    axes[0].plot(labels, metrics["top3"], marker="o", label="Top-3")
-    axes[0].plot(labels, metrics["top5"], marker="o", label="Top-5")
+    axes[0].plot(labels, [v or 0.0 for v in metrics["top1"]], marker="o", label="Top-1")
+    axes[0].plot(labels, [v or 0.0 for v in metrics["top3"]], marker="o", label="Top-3")
+    axes[0].plot(labels, [v or 0.0 for v in metrics["top5"]], marker="o", label="Top-5")
     axes[0].set_ylabel("Hit Rate")
     axes[0].set_title("IRL Replay Evaluation (Annual)")
     axes[0].legend()
     axes[0].grid(True, linestyle="--", alpha=0.4)
 
-    axes[1].plot(labels, metrics["mAP"], marker="o", color="#2ca02c", label="mAP")
-    axes[1].plot(labels, metrics["ECE"], marker="o", color="#d62728", label="ECE")
+    _plot_metric_series(axes[1], labels, metrics["mAP"], "mAP", color="#2ca02c")
+    _plot_metric_series(axes[1], labels, metrics["ECE"], "ECE", color="#d62728")
     axes[1].set_ylabel("Score")
     axes[1].set_xlabel("Evaluation Horizon")
     axes[1].legend()
     axes[1].grid(True, linestyle="--", alpha=0.4)
+
+    if has_multilabel:
+        ax_extra = axes[2]
+        _plot_metric_series(ax_extra, labels, metrics.get("precision_at_1", []), "Precision@1")
+        _plot_metric_series(ax_extra, labels, metrics.get("precision_at_3", []), "Precision@3")
+        _plot_metric_series(ax_extra, labels, metrics.get("precision_at_5", []), "Precision@5")
+        _plot_metric_series(ax_extra, labels, metrics.get("recall_at_1", []), "Recall@1", linestyle="--")
+        _plot_metric_series(ax_extra, labels, metrics.get("recall_at_3", []), "Recall@3", linestyle="--")
+        _plot_metric_series(ax_extra, labels, metrics.get("recall_at_5", []), "Recall@5", linestyle="--")
+        _plot_metric_series(ax_extra, labels, metrics.get("positive_coverage", []), "Positive Coverage", linestyle=":")
+        ax_extra.set_ylabel("Multi-label Metrics")
+        ax_extra.set_xlabel("Evaluation Horizon")
+        ax_extra.legend(ncol=2)
+        ax_extra.grid(True, linestyle="--", alpha=0.4)
 
     fig.tight_layout(rect=[0, 0.18, 1, 1])
     if info_lines:
@@ -178,26 +263,53 @@ def _plot_annual(
 
 def _plot_quarterly(
     months: Sequence[int],
-    metrics: Dict[str, List[float]],
+    metrics: Dict[str, List[float | None]],
     meta_info: str,
     out_path: Path,
 ) -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    multilabel_keys = (
+        "precision_at_1",
+        "precision_at_3",
+        "precision_at_5",
+        "recall_at_1",
+        "recall_at_3",
+        "recall_at_5",
+        "positive_coverage",
+    )
+    has_multilabel = any(_has_values(metrics.get(key, [])) for key in multilabel_keys)
+    n_rows = 3 if has_multilabel else 2
+    fig, axes = plt.subplots(n_rows, 1, figsize=(10, 10 if has_multilabel else 8), sharex=True)
+    if n_rows == 1:
+        axes = [axes]
 
-    axes[0].plot(months, metrics["top1"], marker="o", label="Top-1")
-    axes[0].plot(months, metrics["top3"], marker="o", label="Top-3")
-    axes[0].plot(months, metrics["top5"], marker="o", label="Top-5")
+    axes[0].plot(months, [v or 0.0 for v in metrics["top1"]], marker="o", label="Top-1")
+    axes[0].plot(months, [v or 0.0 for v in metrics["top3"]], marker="o", label="Top-3")
+    axes[0].plot(months, [v or 0.0 for v in metrics["top5"]], marker="o", label="Top-5")
     axes[0].set_ylabel("Hit Rate")
     axes[0].set_title("IRL Replay Evaluation (Quarterly)")
     axes[0].legend()
     axes[0].grid(True, linestyle="--", alpha=0.4)
 
-    axes[1].plot(months, metrics["mAP"], marker="o", color="#2ca02c", label="mAP")
-    axes[1].plot(months, metrics["ECE"], marker="o", color="#d62728", label="ECE")
+    _plot_metric_series(axes[1], months, metrics["mAP"], "mAP", color="#2ca02c")
+    _plot_metric_series(axes[1], months, metrics["ECE"], "ECE", color="#d62728")
     axes[1].set_ylabel("Score")
     axes[1].set_xlabel("Elapsed Months (window start)")
     axes[1].legend()
     axes[1].grid(True, linestyle="--", alpha=0.4)
+
+    if has_multilabel:
+        ax_extra = axes[2]
+        _plot_metric_series(ax_extra, months, metrics.get("precision_at_1", []), "Precision@1")
+        _plot_metric_series(ax_extra, months, metrics.get("precision_at_3", []), "Precision@3")
+        _plot_metric_series(ax_extra, months, metrics.get("precision_at_5", []), "Precision@5")
+        _plot_metric_series(ax_extra, months, metrics.get("recall_at_1", []), "Recall@1", linestyle="--")
+        _plot_metric_series(ax_extra, months, metrics.get("recall_at_3", []), "Recall@3", linestyle="--")
+        _plot_metric_series(ax_extra, months, metrics.get("recall_at_5", []), "Recall@5", linestyle="--")
+        _plot_metric_series(ax_extra, months, metrics.get("positive_coverage", []), "Positive Coverage", linestyle=":")
+        ax_extra.set_ylabel("Multi-label Metrics")
+        ax_extra.set_xlabel("Elapsed Months (window start)")
+        ax_extra.legend(ncol=2)
+        ax_extra.grid(True, linestyle="--", alpha=0.4)
 
     fig.tight_layout(rect=[0, 0.18, 1, 1])
     fig.text(0.5, 0.05, meta_info, ha="center", va="center", fontsize=9)
