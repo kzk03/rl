@@ -1,78 +1,104 @@
-# Gerrit 開発者定着予測システム
+# Gerrit Retention IRL プロジェクト
 
-開発者の長期的な貢献を促進する「開発者定着予測システム」です。このシステムは、開発者の「沸点」（ストレス限界点）を予測し、レビュー受諾行動を最適化することで、持続可能な開発者コミュニティを構築することを目的とします。
+OpenStack Gerrit のレビュー履歴を用いたタスク割り当て・維持率改善のための強化学習 (RL / IRL) 研究リポジトリです。過去レビュー記録から候補レビュアーを推薦し、その品質をオフラインで評価するワークフローと、推定モデルを活用した可視化・分析ツール群を提供します。
 
-## 概要
+## 主な機能
 
-- **定着予測**: 開発者の継続的な貢献確率を予測
-- **ストレス分析**: 開発者の「沸点」を定量化・予測
-- **レビュー最適化**: レビュー受諾行動の分析・改善
-- **強化学習**: 長期定着を重視した推薦システム
+- **データ抽出・前処理**: Gerrit から取得した JSON/CSV をクレンジングし、特徴量付きのタスクデータセットへ整形。
+- **IRL モデル学習**: `scripts/training/offline_rl` 配下のスクリプトで専門家軌跡から報酬関数を推定。
+- **タスク割り当てリプレイ評価**: `scripts/evaluation/task_assignment_replay_eval.py` によりウィンドウ別 métrics を算出し、評価結果を JSON/CSV に出力。
+- **分析・可視化**: `analysis/` 以下で多角的なレポート生成や可視化を実施。
+- **API プロトタイプ**: `api/` ディレクトリで FastAPI ベースのエンドポイントを提供。
 
-## アーキテクチャ
+本プロジェクトのレビュアー推薦は、単なる「担当者割り当て」ではなく、**レビュアーが実際にタスクへ取り組んでくれる確率**を推定し、その確率の変動を逆強化学習・強化学習の両面で活用することが狙いです。逆強化学習で学習した報酬関数は「レビュアーが何を重視して意思決定しているか」を示し、タスク × レビュアー組み合わせごとに取り組み意欲の推定値を与えます。これらをスライディングウィンドウで評価し、個人ごとの確率遷移を追跡しながら、将来的には強化学習により「長期的に貢献してくれるレビュアーを増やすタスク依頼シナリオ」のシミュレーションまで発展させることを目標としています。
 
-```
-GAT (埋め込み) → IRL (報酬) → RL (ポリシー)
-```
+### 今後の分析・発展方向
 
-## 主要機能
+- 逆強化学習で得た報酬関数をスライディングウィンドウで評価し、時間変化やドリフトを定量化。
+- レビュアー個人の「タスクに取り組む確率」の遷移を追跡し、離脱兆候の検知指標を構築。
+- 長期的な貢献者を増やすタスク依頼ポリシーを強化学習で探索・シミュレート。
 
-1. **Gerrit データ統合**: Gerrit API からのデータ抽出・変換
-2. **定着予測モデル**: 開発者の定着確率予測
-3. **ストレス・沸点分析**: 多次元ストレス指標と限界点予測
-4. **レビュー行動分析**: 受諾確率・類似度・好み分析
-5. **強化学習環境**: レビュー受諾最適化
-6. **可視化システム**: ヒートマップ・ダッシュボード
-7. **適応的戦略**: 動的推薦戦略調整
+## リポジトリ構成
+
+| ディレクトリ       | 内容                                                                  |
+| ------------------ | --------------------------------------------------------------------- |
+| `analysis/`        | 評価結果の統計処理・可視化スクリプト。                                |
+| `api/`             | 推薦 API の FastAPI 実装と関連サービス。                              |
+| `configs/`         | 各種実験・サービス用設定ファイル。                                    |
+| `data/`            | 元データおよび加工済みデータ (Git 管理推奨外の大容量ファイルを格納)。 |
+| `data_processing/` | データ抽出・前処理・特徴量生成ユーティリティ。                        |
+| `docker/`          | 本番 / 開発用 Docker 設定。                                           |
+| `docs/`            | 実験記録、設計ノート、ステータスレポート。                            |
+| `examples/`        | ワークフロー解説用サンプルスクリプト。                                |
+| `outputs/`         | 学習・評価の成果物 (JSON/CSV/図表)。                                  |
+| `scripts/`         | 学習・評価・ユーティリティ実行スクリプト。                            |
+
+各最大成果物の例として `outputs/task_assign_multilabel/2023_cutoff_full/README.md` に 2023 年カットオフ実験の詳細サマリーを掲載しています。
 
 ## セットアップ
 
-```bash
-# 依存関係のインストール
-uv sync
+1. **依存整備**: 本プロジェクトは [uv](https://github.com/astral-sh/uv) を前提にしています。
+   ```bash
+   uv sync
+   ```
+2. **環境変数・設定**: `configs/` 以下の `development.yaml` などを参照して必要に応じて調整してください。
+3. **データ配置**: `data/` 配下に Gerrit から抽出した JSON/CSV を配置します (大容量ファイルは Git LFS などで管理推奨)。
 
-# 環境変数の設定
-cp .env.example .env
-# .env ファイルを編集してGerrit接続情報を設定
+## 代表的なワークフロー
 
-# Gerrit接続のテスト
-uv run python scripts/setup_gerrit_connection.py
-```
-
-## 使用方法
+### 1. レビュー依頼データのビルド
 
 ```bash
-# フルパイプラインの実行
-uv run python scripts/run_full_pipeline.py
-
-# 個別コンポーネントの実行
-uv run python training/retention_training/train_retention_model.py
-uv run python training/stress_training/train_stress_model.py
-uv run python training/rl_training/train_ppo_production.py
+uv run python examples/build_eval_from_review_requests.py \
+  --input data/raw/review_requests_openstack.json \
+  --output data/review_requests_openstack_w14.csv
 ```
 
-## プロジェクト構造
+### 2. タスクラベルおよび特徴量生成
 
-詳細なプロジェクト構造については、`docs/development/project_structure.md` を参照してください。
+```bash
+uv run python data_processing/extract_action_match.py \
+  --input data/review_requests_openstack_w14.csv \
+  --output data/processed/action_match.jsonl
+```
+
+### 3. IRL モデル学習
+
+```bash
+uv run python scripts/training/offline_rl/train_retention_irl_from_offline.py \
+  --config configs/rl_config.yaml \
+  --output-dir outputs/irl_model_latest
+```
+
+### 4. リプレイ評価 (タスク割り当て)
+
+```bash
+uv run python scripts/evaluation/task_assignment_replay_eval.py \
+  --tasks outputs/task_assign_multilabel/2023_cutoff_full/tasks_eval.jsonl \
+  --cutoff 2023-07-01T00:00:00 \
+  --eval-mode irl \
+  --irl-model outputs/task_assign_multilabel/2023_cutoff_full/irl_model.json \
+  --windows "0m-3m,3m-6m,6m-9m,9m-12m" \
+  --csv-dir outputs/task_assign_multilabel/2023_cutoff_full/eval_detail \
+  --out outputs/task_assign_multilabel/2023_cutoff_full/replay_eval_eval.json
+```
+
+### 5. 可視化
+
+`analysis/visualization` や `outputs/task_assign_multilabel/2023_cutoff_full/figs/window_match_rates.png` を参照してください。カスタム可視化を追加する場合は `analysis/` 内のテンプレートを活用できます。
+
+## 便利ツール
+
+- レビュアーごとの行抽出: `data_processing/extract_reviwer.py`。
+- 評価結果サマリー: `outputs/task_assign_multilabel/2023_cutoff_full/replay_eval_summary.md`。
+- API サーバー起動: `uv run python api/main.py`。
+
+## ドキュメント
+
+- 長期的な IRL/RL の歩み: `docs/irl_rl_status_20251001.md`
+- 実験ログ: `docs/experiments/`
+- 将来方針メモ: `docs/irl_future_directions.md`
 
 ## ライセンス
 
-MIT License
-
-## 最新出力参照先（Last Artifacts）
-
-- 招待の選定（IRL, Plackett–Luce）: `outputs/reviewer_invitation_irl_pl_full/`
-- 招待後の受諾/実参加: `outputs/reviewer_acceptance_after_invite_full/`
-- 旧版/整理済み出力: `outputs/_legacy/`（旧特徴を含む成果物を移設）
-
-### Reviewer assignment with RL (multi-reviewer)
-
-- Goal: choose a reviewer for each change from multiple candidates.
-- Env: `MultiReviewerAssignmentEnv` (observation = per-candidate features, action = reviewer index)
-- Data: reuses samples from `scripts/run_reviewer_invitation_ranking.py` pipeline.
-- Train:
-
-  - uv run python training/rl_training/train_assignment_ppo.py --changes data/processed/unified/all_reviews.json --timesteps 50000
-  - Output: `outputs/assignment_rl/eval_summary.txt` with avg reward/step (approx. top-1 accuracy against ground truth participants).
-
-- 評価と実行コマンドの詳細: `docs/poster_style_evaluation_guide.md`
+本リポジトリのライセンスやデータ利用ポリシーはプロジェクト内の契約・合意に従います。公開用途で利用する場合は別途確認してください。
