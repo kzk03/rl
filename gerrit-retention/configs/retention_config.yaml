@@ -2,6 +2,12 @@
 
 # 定着予測モデル設定
 retention_prediction:
+  target_window_months: 12
+  feature_history_months: 18
+  min_reviews: 1
+  active_ratio: 0.75
+  grace_period_days: 60
+  activity_after_months: 12
   # モデル選択
   model_type: "ensemble" # random_forest, xgboost, neural_network, ensemble
 
@@ -113,6 +119,15 @@ retention_prediction:
     # 閾値最適化
     threshold_optimization:
       method: "youden_index" # youden_index, f1_optimal, precision_recall_curve
+
+  # CSV 内の列マッピング
+  columns:
+    reviewer: "reviewer_email"
+    created: "request_time"
+    project: "project"
+    status: null
+    approval_flag: null
+    comment_count: null
 
   # 予測設定
   prediction:

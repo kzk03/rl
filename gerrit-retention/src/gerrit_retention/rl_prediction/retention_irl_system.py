@@ -46,10 +46,12 @@ class DeveloperAction:
 
 
 class RetentionIRLNetwork(nn.Module):
-    """継続予測のためのIRLネットワーク"""
+    """継続予測のためのIRLネットワーク (拡張: 時系列対応)"""
     
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, sequence: bool = False, seq_len: int = 10):
         super().__init__()
+        self.sequence = sequence
+        self.seq_len = seq_len
         
         # 状態エンコーダー
         self.state_encoder = nn.Sequential(
@@ -67,6 +69,10 @@ class RetentionIRLNetwork(nn.Module):
             nn.ReLU()
         )
         
+        if self.sequence:
+            # LSTM for sequence
+            self.lstm = nn.LSTM(hidden_dim // 2, hidden_dim, num_layers=1, batch_first=True)
+        
         # 報酬予測器
         self.reward_predictor = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
@@ -82,33 +88,47 @@ class RetentionIRLNetwork(nn.Module):
             nn.Sigmoid()
         )
     
-    def forward(self, state: torch.Tensor, action: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, state: torch.Tensor, action: torch.Tensor, return_hidden: bool = False) -> Tuple[torch.Tensor, torch.Tensor] | Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        前向き計算
+        前向き計算 (拡張: 時系列対応)
         
         Args:
-            state: 開発者状態 [batch_size, state_dim]
-            action: 開発者行動 [batch_size, action_dim]
+            state: 開発者状態 [batch_size, seq_len, state_dim] if sequence else [batch_size, state_dim]
+            action: 開発者行動 [batch_size, seq_len, action_dim] if sequence else [batch_size, action_dim]
+            return_hidden: 隠れ状態も返すかどうか
             
         Returns:
             reward: 予測報酬 [batch_size, 1]
             continuation_prob: 継続確率 [batch_size, 1]
+            hidden: 隠れ状態 [batch_size, hidden_dim] (return_hidden=Trueの場合)
         """
-        state_encoded = self.state_encoder(state)
-        action_encoded = self.action_encoder(action)
+        if self.sequence:
+            # Sequence mode: (batch, seq, dim)
+            batch_size, seq_len, _ = state.shape
+            state_encoded = self.state_encoder(state.view(-1, state.shape[-1])).view(batch_size, seq_len, -1)
+            action_encoded = self.action_encoder(action.view(-1, action.shape[-1])).view(batch_size, seq_len, -1)
+            
+            combined = state_encoded + action_encoded  # Simple addition
+            lstm_out, _ = self.lstm(combined)
+            hidden = lstm_out[:, -1, :]  # Last timestep
+        else:
+            # Single step mode
+            state_encoded = self.state_encoder(state)
+            action_encoded = self.action_encoder(action)
+            combined = torch.cat([state_encoded, action_encoded], dim=1)  # Concat for full hidden_dim
+            hidden = combined
         
-        # 状態と行動を結合
-        combined = torch.cat([state_encoded, action_encoded], dim=1)
+        reward = self.reward_predictor(hidden)
+        continuation_prob = self.continuation_predictor(hidden)
         
-        # 報酬と継続確率を予測
-        reward = self.reward_predictor(combined)
-        continuation_prob = self.continuation_predictor(combined)
-        
-        return reward, continuation_prob
+        if return_hidden:
+            return reward, continuation_prob, hidden
+        else:
+            return reward, continuation_prob
 
 
 class RetentionIRLSystem:
-    """継続予測IRL システム"""
+    """継続予測IRL システム (拡張: 時系列対応)"""
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -117,13 +137,15 @@ class RetentionIRLSystem:
         self.state_dim = config.get('state_dim', 10)
         self.action_dim = config.get('action_dim', 5)
         self.hidden_dim = config.get('hidden_dim', 128)
+        self.sequence = config.get('sequence', False)
+        self.seq_len = config.get('seq_len', 10)
         
         # デバイス設定
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # ネットワーク初期化
         self.network = RetentionIRLNetwork(
-            self.state_dim, self.action_dim, self.hidden_dim
+            self.state_dim, self.action_dim, self.hidden_dim, self.sequence, self.seq_len
         ).to(self.device)
         
         # オプティマイザー
@@ -636,16 +658,26 @@ class RetentionIRLSystem:
         
         logger.info(f"IRLモデルを保存しました: {filepath}")
     
-    def load_model(self, filepath: str) -> None:
-        """モデルを読み込み"""
+    @classmethod
+    def load_model(cls, filepath: str) -> 'RetentionIRLSystem':
+        """モデルを読み込み (クラスメソッド)"""
         
-        checkpoint = torch.load(filepath, map_location=self.device)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        checkpoint = torch.load(filepath, map_location=device)
         
-        self.network.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.config = checkpoint.get('config', self.config)
+        config = checkpoint.get('config', {
+            'state_dim': 20,
+            'action_dim': 3,
+            'hidden_dim': 128,
+            'learning_rate': 0.001
+        })
+        
+        instance = cls(config)
+        instance.network.load_state_dict(checkpoint['model_state_dict'])
+        instance.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         
         logger.info(f"IRLモデルを読み込みました: {filepath}")
+        return instance
 
 
 if __name__ == "__main__":
