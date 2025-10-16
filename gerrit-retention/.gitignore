@@ -152,7 +152,9 @@ data/processed/
 data/external/
 models/
 logs/
+!outputs/irl_openstack_real/*
 outputs/
+
 .hydra/
 mlruns/
 wandb/
