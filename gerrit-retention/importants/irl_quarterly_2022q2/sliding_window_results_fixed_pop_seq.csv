@@ -1,0 +1,3 @@
+history_months,target_months,reference_period_months,target_reviewer_count,sequence_mode,seq_len,train_samples,test_samples,auc_roc,auc_pr,accuracy,precision,recall,f1,model_path
+6,3,6,343,True,15,274,69,0.8813131313131314,0.9106064641345454,0.855072463768116,1.0,0.696969696969697,0.8214285714285714,importants/irl_quarterly_2022q2/models/irl_h6m_t3m_fixed_seq.pth
+12,3,6,343,True,15,274,69,0.8712121212121211,0.9070424367269454,0.8260869565217391,0.92,0.696969696969697,0.7931034482758621,importants/irl_quarterly_2022q2/models/irl_h12m_t3m_fixed_seq.pth

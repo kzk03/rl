@@ -1,0 +1,5 @@
+history_months,target_months,reference_period_months,target_reviewer_count,sequence_mode,seq_len,train_samples,test_samples,auc_roc,auc_pr,accuracy,precision,recall,f1,model_path
+6,6,6,291,True,15,232,59,0.8221288515406162,0.938115783153622,0.7288135593220338,0.825,0.7857142857142857,0.8048780487804879,importants/irl_fixed_population/models/irl_h6m_t6m_fixed_seq.pth
+6,12,6,291,True,15,232,59,0.7920634920634921,0.9332932997102639,0.7457627118644068,0.8571428571428571,0.8,0.8275862068965517,importants/irl_fixed_population/models/irl_h6m_t12m_fixed_seq.pth
+12,6,6,291,True,15,232,59,0.9243697478991597,0.9715456744012269,0.8305084745762712,0.8636363636363636,0.9047619047619048,0.8837209302325582,importants/irl_fixed_population/models/irl_h12m_t6m_fixed_seq.pth
+12,12,6,291,True,15,232,59,0.8825396825396825,0.9634402000337102,0.8135593220338984,0.84,0.9333333333333333,0.8842105263157894,importants/irl_fixed_population/models/irl_h12m_t12m_fixed_seq.pth
