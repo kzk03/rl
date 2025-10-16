@@ -1,0 +1,1 @@
+rsync -avz --progress /Users/kazuki-h/rl/gerrit-retention/ socsel:/mnt/data1/kazuki-h
