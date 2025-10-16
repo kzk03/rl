@@ -303,27 +303,27 @@ class RetentionIRLSystem:
         
         return torch.tensor(features, dtype=torch.float32, device=self.device)
     
-    def train_irl(self, 
-                  expert_trajectories: List[Dict[str, Any]], 
+    def train_irl(self,
+                  expert_trajectories: List[Dict[str, Any]],
                   epochs: int = 100) -> Dict[str, Any]:
         """
-        IRLモデルを訓練
-        
+        IRLモデルを訓練（時系列対応）
+
         Args:
             expert_trajectories: エキスパート軌跡データ
             epochs: 訓練エポック数
-            
+
         Returns:
             Dict[str, Any]: 訓練結果
         """
-        logger.info(f"IRL訓練開始: {len(expert_trajectories)}軌跡, {epochs}エポック")
-        
+        logger.info(f"IRL訓練開始: {len(expert_trajectories)}軌跡, {epochs}エポック (時系列モード: {self.sequence})")
+
         training_losses = []
-        
+
         for epoch in range(epochs):
             epoch_loss = 0.0
             batch_count = 0
-            
+
             for trajectory in expert_trajectories:
                 try:
                     # 軌跡から状態と行動を抽出
@@ -331,123 +331,193 @@ class RetentionIRLSystem:
                     activity_history = trajectory['activity_history']
                     continuation_label = trajectory.get('continued', True)  # 継続ラベル
                     context_date = trajectory.get('context_date', datetime.now())
-                    
+
                     # 状態と行動を抽出
                     state = self.extract_developer_state(developer, activity_history, context_date)
                     actions = self.extract_developer_actions(activity_history, context_date)
-                    
+
                     if not actions:
                         continue
-                    
-                    # テンソルに変換
-                    state_tensor = self.state_to_tensor(state).unsqueeze(0)
-                    
-                    # 各行動に対して学習
-                    for action in actions[-5:]:  # 最近の5つの行動
-                        action_tensor = self.action_to_tensor(action).unsqueeze(0)
-                        
+
+                    if self.sequence:
+                        # 時系列モード: 軌跡全体を使用
+                        # シーケンス長に合わせてパディングまたはトランケート
+                        if len(actions) < self.seq_len:
+                            # パディング: 最初のアクションを繰り返す
+                            padded_actions = [actions[0]] * (self.seq_len - len(actions)) + actions
+                        else:
+                            # トランケート: 最新のseq_lenアクションを使用
+                            padded_actions = actions[-self.seq_len:]
+
+                        # 状態テンソル: 各タイムステップで同じ状態を使用（簡略化）
+                        state_tensors = [self.state_to_tensor(state) for _ in range(self.seq_len)]
+                        state_seq = torch.stack(state_tensors).unsqueeze(0)  # [1, seq_len, state_dim]
+
+                        # 行動テンソル: 時系列順序を保持
+                        action_tensors = [self.action_to_tensor(action) for action in padded_actions]
+                        action_seq = torch.stack(action_tensors).unsqueeze(0)  # [1, seq_len, action_dim]
+
                         # 前向き計算
                         predicted_reward, predicted_continuation = self.network(
-                            state_tensor, action_tensor
+                            state_seq, action_seq
                         )
-                        
+
                         # 損失計算
-                        # 継続した開発者の行動には高い報酬を与える
                         target_reward = torch.tensor(
-                            [[1.0 if continuation_label else 0.0]], 
+                            [[1.0 if continuation_label else 0.0]],
                             device=self.device
                         )
                         target_continuation = torch.tensor(
-                            [[1.0 if continuation_label else 0.0]], 
+                            [[1.0 if continuation_label else 0.0]],
                             device=self.device
                         )
-                        
+
                         reward_loss = self.mse_loss(predicted_reward, target_reward)
                         continuation_loss = self.bce_loss(predicted_continuation, target_continuation)
-                        
+
                         total_loss = reward_loss + continuation_loss
-                        
+
                         # バックプロパゲーション
                         self.optimizer.zero_grad()
                         total_loss.backward()
                         self.optimizer.step()
-                        
+
                         epoch_loss += total_loss.item()
                         batch_count += 1
-                
+                    else:
+                        # 非時系列モード: 各行動を独立に学習（従来の方式）
+                        state_tensor = self.state_to_tensor(state).unsqueeze(0)
+
+                        # 最近の5つの行動のみ使用
+                        for action in actions[-5:]:
+                            action_tensor = self.action_to_tensor(action).unsqueeze(0)
+
+                            # 前向き計算
+                            predicted_reward, predicted_continuation = self.network(
+                                state_tensor, action_tensor
+                            )
+
+                            # 損失計算
+                            target_reward = torch.tensor(
+                                [[1.0 if continuation_label else 0.0]],
+                                device=self.device
+                            )
+                            target_continuation = torch.tensor(
+                                [[1.0 if continuation_label else 0.0]],
+                                device=self.device
+                            )
+
+                            reward_loss = self.mse_loss(predicted_reward, target_reward)
+                            continuation_loss = self.bce_loss(predicted_continuation, target_continuation)
+
+                            total_loss = reward_loss + continuation_loss
+
+                            # バックプロパゲーション
+                            self.optimizer.zero_grad()
+                            total_loss.backward()
+                            self.optimizer.step()
+
+                            epoch_loss += total_loss.item()
+                            batch_count += 1
+
                 except Exception as e:
                     logger.warning(f"軌跡処理エラー: {e}")
                     continue
-            
+
             avg_loss = epoch_loss / max(batch_count, 1)
             training_losses.append(avg_loss)
-            
+
             if epoch % 10 == 0:
                 logger.info(f"エポック {epoch}: 平均損失 = {avg_loss:.4f}")
-        
+
         logger.info("IRL訓練完了")
-        
+
         return {
             'training_losses': training_losses,
             'final_loss': training_losses[-1] if training_losses else 0.0,
             'epochs_trained': epochs
         }
     
-    def predict_continuation_probability(self, 
-                                       developer: Dict[str, Any], 
+    def predict_continuation_probability(self,
+                                       developer: Dict[str, Any],
                                        activity_history: List[Dict[str, Any]],
                                        context_date: Optional[datetime] = None) -> Dict[str, Any]:
         """
-        継続確率を予測
-        
+        継続確率を予測（時系列対応）
+
         Args:
             developer: 開発者データ
             activity_history: 活動履歴
             context_date: 基準日
-            
+
         Returns:
             Dict[str, Any]: 予測結果
         """
         if context_date is None:
             context_date = datetime.now()
-        
+
         self.network.eval()
-        
+
         with torch.no_grad():
             # 状態と行動を抽出
             state = self.extract_developer_state(developer, activity_history, context_date)
             actions = self.extract_developer_actions(activity_history, context_date)
-            
+
             if not actions:
                 return {
                     'continuation_probability': 0.5,
                     'confidence': 0.0,
                     'reasoning': '活動履歴が不足しているため、デフォルト確率を返します'
                 }
-            
-            # 最近の行動を使用
-            recent_action = actions[-1]
-            
-            # テンソルに変換
-            state_tensor = self.state_to_tensor(state).unsqueeze(0)
-            action_tensor = self.action_to_tensor(recent_action).unsqueeze(0)
-            
-            # 予測実行
-            predicted_reward, predicted_continuation = self.network(
-                state_tensor, action_tensor
-            )
-            
+
+            if self.sequence:
+                # 時系列モード: シーケンスとして予測
+                # シーケンス長に合わせてパディングまたはトランケート
+                if len(actions) < self.seq_len:
+                    # パディング: 最初のアクションを繰り返す
+                    padded_actions = [actions[0]] * (self.seq_len - len(actions)) + actions
+                else:
+                    # トランケート: 最新のseq_lenアクションを使用
+                    padded_actions = actions[-self.seq_len:]
+
+                # 状態テンソル: 各タイムステップで同じ状態を使用（簡略化）
+                state_tensors = [self.state_to_tensor(state) for _ in range(self.seq_len)]
+                state_seq = torch.stack(state_tensors).unsqueeze(0)  # [1, seq_len, state_dim]
+
+                # 行動テンソル: 時系列順序を保持
+                action_tensors = [self.action_to_tensor(action) for action in padded_actions]
+                action_seq = torch.stack(action_tensors).unsqueeze(0)  # [1, seq_len, action_dim]
+
+                # 予測実行
+                predicted_reward, predicted_continuation = self.network(
+                    state_seq, action_seq
+                )
+
+                recent_action = actions[-1]
+            else:
+                # 非時系列モード: 最近の行動を使用
+                recent_action = actions[-1]
+
+                # テンソルに変換
+                state_tensor = self.state_to_tensor(state).unsqueeze(0)
+                action_tensor = self.action_to_tensor(recent_action).unsqueeze(0)
+
+                # 予測実行
+                predicted_reward, predicted_continuation = self.network(
+                    state_tensor, action_tensor
+                )
+
             continuation_prob = predicted_continuation.item()
             reward_score = predicted_reward.item()
-            
+
             # 信頼度計算（簡易版）
             confidence = min(abs(continuation_prob - 0.5) * 2, 1.0)
-            
+
             # 理由生成
             reasoning = self._generate_irl_reasoning(
                 state, recent_action, continuation_prob, reward_score
             )
-            
+
             return {
                 'continuation_probability': continuation_prob,
                 'reward_score': reward_score,
