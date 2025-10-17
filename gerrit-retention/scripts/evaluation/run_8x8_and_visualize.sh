@@ -1,114 +1,157 @@
 #!/bin/bash
-# 8×8行列評価とヒートマップ可視化の統合スクリプト
+# 8×8マトリクス評価の実行と可視化（3ヶ月単位スライディングウィンドウ）
 
 set -e
 
-# デフォルト値
-SNAPSHOT_DATE="2023-01-01"
-DATA_FILE="data/review_requests_openstack_multi_5y_detail.csv"
+# デフォルト設定
+REVIEWS_FILE="data/review_requests_openstack_no_bots.csv"
+START_DATE="2023-01-01"
 OUTPUT_BASE="importants/irl_matrix_8x8"
 
-# 引数処理
+# ヘルプ表示
+show_help() {
+    cat << EOF
+使用方法: $0 [OPTIONS]
+
+3ヶ月単位のスライディングウィンドウで2年間（8×8マトリクス）のIRL評価を実行
+
+オプション:
+    -r, --reviews FILE      レビューCSVファイル (デフォルト: $REVIEWS_FILE)
+    -s, --start-date DATE   開始日 YYYY-MM-DD (デフォルト: $START_DATE)
+    -e, --enhanced          拡張特徴量を使用
+    -o, --output DIR        出力ディレクトリ (デフォルト: $OUTPUT_BASE)
+    -h, --help              このヘルプを表示
+
+使用例:
+    # 基本版で実行
+    $0 --start-date 2023-01-01
+
+    # 拡張特徴量で実行
+    $0 --start-date 2023-01-01 --enhanced --output importants/irl_matrix_8x8_enhanced
+
+    # カスタムデータで実行
+    $0 --reviews data/custom_reviews.csv --start-date 2022-01-01
+EOF
+}
+
+# パラメータ解析
+ENHANCED=""
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --snapshot-date)
-            SNAPSHOT_DATE="$2"
+        -r|--reviews)
+            REVIEWS_FILE="$2"
             shift 2
             ;;
-        --data)
-            DATA_FILE="$2"
+        -s|--start-date)
+            START_DATE="$2"
             shift 2
             ;;
-        --output)
+        -e|--enhanced)
+            ENHANCED="--use-enhanced-features"
+            shift
+            ;;
+        -o|--output)
             OUTPUT_BASE="$2"
             shift 2
             ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
         *)
-            echo "Unknown option: $1"
+            echo "不明なオプション: $1"
+            show_help
             exit 1
             ;;
     esac
 done
 
-# スナップショット日からラベルを生成（例: 2023-01-01 -> 2023q1）
-LABEL=$(echo $SNAPSHOT_DATE | awk -F'-' '{
-    year=$1
-    month=$2
-    if (month <= 3) quarter=1
-    else if (month <= 6) quarter=2
-    else if (month <= 9) quarter=3
-    else quarter=4
-    printf "%sq%d", year, quarter
-}')
+# 出力ディレクトリを決定
+if [ -n "$ENHANCED" ]; then
+    OUTPUT_DIR="${OUTPUT_BASE}_enhanced_${START_DATE//-/}"
+else
+    OUTPUT_DIR="${OUTPUT_BASE}_${START_DATE//-/}"
+fi
 
-OUTPUT_DIR="${OUTPUT_BASE}_${LABEL}"
+echo "=========================================="
+echo "8×8マトリクス評価開始"
+echo "=========================================="
+echo "レビューファイル: $REVIEWS_FILE"
+echo "開始日: $START_DATE"
+echo "拡張特徴量: $([ -n "$ENHANCED" ] && echo 'はい' || echo 'いいえ')"
+echo "出力先: $OUTPUT_DIR"
+echo "=========================================="
 
-echo "========================================"
-echo "8×8 IRL評価と可視化"
-echo "========================================"
-echo "スナップショット日: $SNAPSHOT_DATE"
-echo "データファイル: $DATA_FILE"
-echo "出力ディレクトリ: $OUTPUT_DIR"
-echo "========================================"
+# データファイルの存在確認
+if [ ! -f "$REVIEWS_FILE" ]; then
+    echo "エラー: レビューファイルが見つかりません: $REVIEWS_FILE"
+    exit 1
+fi
+
+# ステップ1: 8×8マトリクス評価実行
+echo ""
+echo "ステップ1: 8×8マトリクス評価を実行中..."
 echo ""
 
-# ステップ1: 8×8行列評価（64実験）
-echo "ステップ1: 8×8行列評価を実行中..."
-echo ""
-
-uv run python scripts/training/irl/train_temporal_irl_sliding_window_fixed_pop.py \
-    --reviews $DATA_FILE \
-    --snapshot-date $SNAPSHOT_DATE \
-    --reference-period 6 \
-    --history-months 3 6 9 12 15 18 21 24 \
-    --target-months 3 6 9 12 15 18 21 24 \
+uv run python scripts/evaluation/run_8x8_matrix_quarterly.py \
+    --reviews "$REVIEWS_FILE" \
+    --start-date "$START_DATE" \
+    $ENHANCED \
     --sequence \
     --seq-len 15 \
     --epochs 30 \
-    --output $OUTPUT_DIR
+    --output "$OUTPUT_DIR"
 
-echo ""
-echo "✅ ステップ1完了"
-echo ""
+# 実行結果の確認
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "✅ 8×8マトリクス評価が完了しました"
+    echo ""
+else
+    echo ""
+    echo "❌ エラーが発生しました"
+    exit 1
+fi
 
-# ステップ2: ヒートマップ作成
-echo "ステップ2: ヒートマップを作成中..."
-echo ""
+# ステップ2: 結果サマリー表示
+echo "=========================================="
+echo "結果サマリー"
+echo "=========================================="
 
-CSV_FILE="$OUTPUT_DIR/sliding_window_results_fixed_pop_seq.csv"
-HEATMAP_DIR="$OUTPUT_DIR/heatmaps"
+if [ -f "$OUTPUT_DIR/MATRIX_8x8_REPORT.md" ]; then
+    echo ""
+    echo "📊 マトリクスレポート:"
+    head -n 30 "$OUTPUT_DIR/MATRIX_8x8_REPORT.md"
+    echo ""
+    echo "（続きは $OUTPUT_DIR/MATRIX_8x8_REPORT.md を参照）"
+fi
 
-uv run python scripts/visualization/create_heatmap_8x8.py \
-    --csv $CSV_FILE \
-    --output $HEATMAP_DIR \
-    --title-suffix " ($LABEL)"
+# ステップ3: ファイル一覧表示
+echo ""
+echo "=========================================="
+echo "生成されたファイル"
+echo "=========================================="
+ls -lh "$OUTPUT_DIR"
 
+# ステップ4: 次のステップの提案
 echo ""
-echo "✅ ステップ2完了"
+echo "=========================================="
+echo "次のステップ"
+echo "=========================================="
 echo ""
-
-# ステップ3: 詳細分析レポート作成
-echo "ステップ3: 詳細分析レポートを作成中..."
+echo "📄 詳細レポート:"
+echo "  cat $OUTPUT_DIR/MATRIX_8x8_REPORT.md"
 echo ""
-
-ANALYSIS_FILE="$OUTPUT_DIR/analysis_report.md"
-
-uv run python scripts/analysis/analyze_8x8_matrix.py \
-    --csv $CSV_FILE \
-    --output $ANALYSIS_FILE
-
+echo "📊 NumPy行列データ:"
+echo "  - $OUTPUT_DIR/matrix_auc_roc.npy"
+echo "  - $OUTPUT_DIR/matrix_auc_pr.npy"
+echo "  - $OUTPUT_DIR/matrix_f1.npy"
 echo ""
-echo "✅ ステップ3完了"
+echo "📈 Pythonで可視化:"
+echo "  import numpy as np"
+echo "  import matplotlib.pyplot as plt"
+echo "  matrix = np.load('$OUTPUT_DIR/matrix_auc_roc.npy')"
+echo "  plt.imshow(matrix, cmap='viridis')"
+echo "  plt.colorbar()"
+echo "  plt.show()"
 echo ""
-
-# 完了メッセージ
-echo "========================================"
-echo "✅ すべての処理が完了しました！"
-echo "========================================"
-echo ""
-echo "生成されたファイル:"
-echo "  - 評価結果CSV: $CSV_FILE"
-echo "  - ヒートマップ: $HEATMAP_DIR/"
-echo "  - 分析レポート: $ANALYSIS_FILE"
-echo ""
-echo "========================================"
