@@ -510,9 +510,14 @@ uv run python scripts/training/irl/train_temporal_irl_sliding_window_fixed_pop.p
 
 #### 短期（優先度高）
 1. ✅ ボットアカウント除外スクリプトを作成
+   - [scripts/preprocessing/filter_bot_accounts.py](../scripts/preprocessing/filter_bot_accounts.py)
+   - 推奨パターンで44.41%のノイズを除去（61,120件 → 76,512件）
 
 #### 中期（優先度中）
-5. プロジェクト別フィルターの検討
+5. ✅ プロジェクト別フィルターの実装
+   - [scripts/preprocessing/filter_by_project.py](../scripts/preprocessing/filter_by_project.py)
+   - 手動指定、上位N個自動抽出、プロジェクト別分割に対応
+   - 詳細は [DATA_FILTERING_GUIDE.md](DATA_FILTERING_GUIDE.md) を参照
 
 
 

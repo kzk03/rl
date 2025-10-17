@@ -21,6 +21,37 @@ uv sync --all-extras
 
 ### Running Core Workflows
 
+#### 0. Data Preprocessing (Recommended)
+
+**IMPORTANT**: Filter bot accounts before training to improve data quality (removes 44% noise).
+
+```bash
+# Remove bot accounts (recommended)
+uv run python scripts/preprocessing/filter_bot_accounts.py \
+  --input data/review_requests_openstack_multi_5y_detail.csv \
+  --output data/review_requests_no_bots.csv
+
+# Filter by specific projects
+uv run python scripts/preprocessing/filter_by_project.py \
+  --input data/review_requests_no_bots.csv \
+  --output data/review_requests_nova_neutron.csv \
+  --projects "openstack/nova" "openstack/neutron"
+
+# Or extract top N projects automatically
+uv run python scripts/preprocessing/filter_by_project.py \
+  --input data/review_requests_no_bots.csv \
+  --output data/review_requests_top3.csv \
+  --top 3
+
+# Split by project (for automated per-project analysis)
+uv run python scripts/preprocessing/filter_by_project.py \
+  --input data/review_requests_no_bots.csv \
+  --split-by-project \
+  --output-dir data/projects/
+```
+
+See [docs/DATA_FILTERING_GUIDE.md](docs/DATA_FILTERING_GUIDE.md) for details.
+
 #### 1. Temporal IRL Training and Evaluation
 
 **IMPORTANT**: All evaluation results should be saved to `importants/` directory for easy tracking.
