@@ -1,0 +1,28 @@
+{
+  "model": "enhanced_irl",
+  "features": "B1+C1+A1+D1 (high priority)",
+  "snapshot_date": "2023-01-01",
+  "history_months": 12,
+  "target_months": 6,
+  "reference_period": 6,
+  "fixed_reviewers": 290,
+  "train_trajectories": 232,
+  "test_trajectories": 58,
+  "train_continuation_rate": 0.6594827586206896,
+  "test_continuation_rate": 0.4482758620689655,
+  "sequence": true,
+  "seq_len": 15,
+  "hidden_dim": 256,
+  "dropout": 0.2,
+  "epochs": 30,
+  "final_loss": 0.3358795339133065,
+  "evaluation": {
+    "auc_roc": 0.7932692307692307,
+    "auc_pr": 0.7352124673813792,
+    "f1": 0.7741935483870968,
+    "precision": 0.6666666666666666,
+    "recall": 0.9230769230769231,
+    "accuracy": 0.7586206896551724
+  },
+  "model_path": "importants/enhanced_irl_v2_fixed/models/enhanced_irl_h12m_t6m_seq.pth"
+}
