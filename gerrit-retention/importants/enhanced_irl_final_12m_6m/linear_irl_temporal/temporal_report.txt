@@ -1,0 +1,65 @@
+================================================================================
+LINEAR TEMPORAL IRL ANALYSIS REPORT
+================================================================================
+
+Configuration:
+  State dim: 32
+  Action dim: 9
+  Sequence length: 15
+  Decay rate: 0.1
+  Temporal features: 410
+
+Performance:
+  accuracy: 0.9870
+  auc_roc: 0.9993
+  auc_pr: 0.9992
+  f1: 0.9852
+
+================================================================================
+TOP 30 FEATURES
+================================================================================
+
++ collaboration_diversity_change                                Weight:  12.7398  (INCREASE continuation)
++ collaboration_diversity_last                                  Weight:   2.6652  (INCREASE continuation)
++ collaboration_diversity_trend                                 Weight:   0.9276  (INCREASE continuation)
++ avg_complexity_30d_max                                        Weight:   0.8036  (INCREASE continuation)
+- collaboration_diversity_mid_mean                              Weight:  -0.7311  (DECREASE continuation)
++ intensity_change                                              Weight:   0.6116  (INCREASE continuation)
+- avg_complexity_30d_volatility                                 Weight:  -0.5701  (DECREASE continuation)
++ activity_freq_30d_trend                                       Weight:   0.5683  (INCREASE continuation)
+- activity_freq_30d_mid_mean                                    Weight:  -0.5263  (DECREASE continuation)
+- code_churn_7d_change                                          Weight:  -0.5232  (DECREASE continuation)
++ file_type_diversity_volatility                                Weight:   0.4965  (INCREASE continuation)
+- file_type_diversity_max                                       Weight:  -0.4893  (DECREASE continuation)
++ file_type_diversity_trend                                     Weight:   0.4836  (INCREASE continuation)
+- experience_days_short_mean                                    Weight:  -0.4830  (DECREASE continuation)
++ avg_interaction_strength_volatility                           Weight:   0.4780  (INCREASE continuation)
+- complexity_mid_mean                                           Weight:  -0.4519  (DECREASE continuation)
+- timestamp_age_last                                            Weight:  -0.4443  (DECREASE continuation)
++ timestamp_age_change                                          Weight:   0.4260  (INCREASE continuation)
+- change_size_mid_mean                                          Weight:  -0.4224  (DECREASE continuation)
++ code_churn_7d_last                                            Weight:   0.4195  (INCREASE continuation)
+- activity_freq_7d_mid_mean                                     Weight:  -0.4144  (DECREASE continuation)
++ complexity_change                                             Weight:   0.4130  (INCREASE continuation)
+- avg_interaction_strength_max                                  Weight:  -0.4039  (DECREASE continuation)
++ response_latency_mean                                         Weight:   0.4017  (INCREASE continuation)
++ specialization_score_mid_mean                                 Weight:   0.4016  (INCREASE continuation)
+- specialization_score_trend                                    Weight:  -0.3919  (DECREASE continuation)
++ avg_interaction_strength_short_mean                           Weight:   0.3905  (INCREASE continuation)
+- quality_last                                                  Weight:  -0.3772  (DECREASE continuation)
++ activity_freq_90d_mid_mean                                    Weight:   0.3759  (INCREASE continuation)
+- file_type_diversity_change                                    Weight:  -0.3741  (DECREASE continuation)
+
+================================================================================
+AGGREGATION TYPE IMPORTANCE
+================================================================================
+
+  mean                   25.4171
+  change                 19.5407
+  last                    9.1464
+  trend                   7.3108
+  volatility              6.7772
+  max                     5.7158
+  min                     3.7437
+
+================================================================================
