@@ -1,0 +1,53 @@
+================================================================================
+LINEAR IRL ANALYSIS REPORT
+================================================================================
+
+Configuration:
+  State dim: 32
+  Action dim: 9
+  Sequence length: 15
+  Epochs: 100
+  Learning rate: 0.01
+
+Performance:
+  accuracy: 1.0000
+  auc_roc: 1.0000
+  auc_pr: 1.0000
+  f1: 1.0000
+
+================================================================================
+TOP 30 FEATURES
+================================================================================
+
++ lstm_hidden_50                                      Weight:   3.0066  (INCREASE continuation)
+- lstm_hidden_26                                      Weight:  -2.1000  (DECREASE continuation)
++ lstm_hidden_52                                      Weight:   1.7585  (INCREASE continuation)
+- lstm_hidden_23                                      Weight:  -1.7310  (DECREASE continuation)
+- lstm_hidden_9                                       Weight:  -1.1746  (DECREASE continuation)
++ lstm_hidden_44                                      Weight:   0.9743  (INCREASE continuation)
++ lstm_hidden_58                                      Weight:   0.9691  (INCREASE continuation)
++ lstm_hidden_25                                      Weight:   0.9374  (INCREASE continuation)
+- lstm_hidden_48                                      Weight:  -0.9143  (DECREASE continuation)
+- lstm_hidden_49                                      Weight:  -0.8938  (DECREASE continuation)
+- lstm_hidden_51                                      Weight:  -0.8671  (DECREASE continuation)
+- lstm_hidden_47                                      Weight:  -0.8549  (DECREASE continuation)
+- lstm_hidden_42                                      Weight:  -0.8211  (DECREASE continuation)
++ lstm_hidden_21                                      Weight:   0.8080  (INCREASE continuation)
++ lstm_hidden_8                                       Weight:   0.7802  (INCREASE continuation)
+- lstm_hidden_38                                      Weight:  -0.7757  (DECREASE continuation)
+- lstm_hidden_46                                      Weight:  -0.7675  (DECREASE continuation)
+- lstm_hidden_30                                      Weight:  -0.7291  (DECREASE continuation)
+- lstm_hidden_18                                      Weight:  -0.7226  (DECREASE continuation)
+- lstm_hidden_20                                      Weight:  -0.6804  (DECREASE continuation)
++ lstm_hidden_41                                      Weight:   0.6695  (INCREASE continuation)
+- lstm_hidden_35                                      Weight:  -0.6631  (DECREASE continuation)
+- lstm_hidden_60                                      Weight:  -0.6519  (DECREASE continuation)
+- lstm_hidden_55                                      Weight:  -0.6402  (DECREASE continuation)
+- lstm_hidden_27                                      Weight:  -0.6224  (DECREASE continuation)
+- lstm_hidden_43                                      Weight:  -0.6008  (DECREASE continuation)
+- lstm_hidden_39                                      Weight:  -0.5717  (DECREASE continuation)
++ lstm_hidden_29                                      Weight:   0.5411  (INCREASE continuation)
+- lstm_hidden_1                                       Weight:  -0.5402  (DECREASE continuation)
++ lstm_hidden_11                                      Weight:   0.5392  (INCREASE continuation)
+
+================================================================================

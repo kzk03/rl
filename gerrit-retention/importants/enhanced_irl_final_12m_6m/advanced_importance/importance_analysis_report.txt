@@ -1,0 +1,42 @@
+================================================================================
+ADVANCED FEATURE IMPORTANCE ANALYSIS REPORT
+================================================================================
+
+Methods:
+  1. Permutation Importance: Measures loss increase when feature is shuffled
+  2. Integrated Gradients: Gradient-based attribution along baseline path
+
+================================================================================
+STATE FEATURES (Top 10)
+================================================================================
+
+By Permutation Importance:
+  collaboration_diversity         Perm: 0.001045 ± 0.000806  IG: 0.000012
+  avg_complexity_7d               Perm: 0.000053 ± 0.000134  IG: 0.000000
+  avg_code_complexity             Perm: 0.000000 ± 0.000000  IG: 0.000000
+  review_load_7d                  Perm: 0.000000 ± 0.000000  IG: 0.000000
+  experience_normalized           Perm: 0.000000 ± 0.000000  IG: 0.000000
+  review_load_30d                 Perm: 0.000000 ± 0.000000  IG: 0.000000
+  unique_collaborators            Perm: 0.000000 ± 0.000000  IG: 0.000000
+  avg_review_depth                Perm: -0.000041 ± 0.000813  IG: 0.000008
+  activity_freq_90d               Perm: -0.000133 ± 0.000228  IG: 0.000004
+  review_response_time            Perm: -0.000399 ± 0.002021  IG: 0.000004
+
+================================================================================
+ACTION FEATURES (All)
+================================================================================
+
+By Permutation Importance:
+  timestamp_age                   Perm: -0.006816 ± 0.001582  IG: 0.000012
+  intensity                       Perm: -0.004957 ± 0.002579  IG: 0.000017
+  response_latency                Perm: -0.002023 ± 0.000528  IG: 0.000004
+  complexity                      Perm: -0.001157 ± 0.000688  IG: 0.000000
+  change_size                     Perm: -0.000061 ± 0.000041  IG: 0.000000
+  action_type                     Perm: 0.000000 ± 0.000000  IG: 0.000000
+  quality                         Perm: 0.000000 ± 0.000000  IG: 0.000000
+  collaboration                   Perm: 0.000000 ± 0.000000  IG: 0.000000
+  files_count                     Perm: 0.000172 ± 0.000074  IG: 0.000000
+
+================================================================================
+Analysis complete! All outputs saved to: importants/enhanced_irl_final_12m_6m/advanced_importance
+================================================================================

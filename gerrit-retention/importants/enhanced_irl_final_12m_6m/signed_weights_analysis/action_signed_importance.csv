@@ -1,0 +1,10 @@
+feature,signed_importance,abs_importance
+timestamp_age,0.07946498,0.15626054
+intensity,0.06194359,0.1310393
+response_latency,0.019463852,0.046375975
+complexity,0.0025692186,0.004266525
+files_count,0.00038337984,0.0017607858
+change_size,0.00019677682,0.0008121218
+collaboration,5.91218e-40,3.0135254e-38
+quality,2.9681e-40,2.9393737e-38
+action_type,4.54967e-40,2.780645e-38
