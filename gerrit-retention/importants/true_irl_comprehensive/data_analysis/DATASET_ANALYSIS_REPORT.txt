@@ -1,0 +1,42 @@
+================================================================================
+DATASET ANALYSIS REPORT
+================================================================================
+
+File Information
+--------------------------------------------------------------------------------
+Path: /Users/kazuki-h/rl/gerrit-retention/data/review_requests_openstack_multi_5y_detail.csv
+Size: 78.75 MB
+Rows: 137,632
+Columns: 65
+
+Time Range
+--------------------------------------------------------------------------------
+Column: request_time
+Start: 2012-06-20 07:20:24
+End: 2025-09-27 10:39:10
+Duration: 4,847 days (13.3 years)
+
+Reviewer Statistics
+--------------------------------------------------------------------------------
+Total reviewers: 1,379
+Reviews per reviewer:
+  Mean: 99.8
+  Median: 3
+  75th percentile: 11
+  90th percentile: 101
+  Max: 3,951
+
+Project Statistics
+--------------------------------------------------------------------------------
+Total projects: 5
+
+Top 10 projects:
+   1. openstack/cinder                         71,604 reviews, 615 reviewers
+   2. openstack/neutron                        32,888 reviews, 503 reviewers
+   3. openstack/nova                           27,328 reviews, 565 reviewers
+   4. openstack/glance                          3,273 reviews, 203 reviewers
+   5. openstack/keystone                        2,539 reviews, 202 reviewers
+
+================================================================================
+Analysis complete
+================================================================================

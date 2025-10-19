@@ -1,0 +1,125 @@
+{
+  "file_info": {
+    "path": "/Users/kazuki-h/rl/gerrit-retention/data/review_requests_openstack_multi_5y_detail.csv",
+    "size_mb": 78.75140190124512,
+    "rows": 137632,
+    "columns": 65,
+    "column_names": [
+      "change_id",
+      "project",
+      "owner_email",
+      "reviewer_email",
+      "request_time",
+      "developer_email",
+      "context_date",
+      "responded_within_days",
+      "label",
+      "first_response_time",
+      "response_latency_days",
+      "first_vote_time",
+      "vote_latency_days",
+      "days_since_last_activity",
+      "reviewer_past_reviews_30d",
+      "reviewer_past_reviews_90d",
+      "reviewer_past_reviews_180d",
+      "owner_past_messages_30d",
+      "owner_past_messages_90d",
+      "owner_past_messages_180d",
+      "owner_reviewer_past_interactions_180d",
+      "owner_reviewer_project_interactions_180d",
+      "owner_reviewer_past_assignments_180d",
+      "reviewer_assignment_load_7d",
+      "reviewer_assignment_load_30d",
+      "reviewer_assignment_load_180d",
+      "reviewer_past_response_rate_180d",
+      "reviewer_tenure_days",
+      "owner_tenure_days",
+      "change_insertions",
+      "change_deletions",
+      "change_files_count",
+      "work_in_progress",
+      "subject_len",
+      "path_overlap_files_global",
+      "path_overlap_dir1_global",
+      "path_overlap_dir2_global",
+      "path_jaccard_files_global",
+      "path_jaccard_dir1_global",
+      "path_jaccard_dir2_global",
+      "path_overlap_files_project",
+      "path_overlap_dir1_project",
+      "path_overlap_dir2_project",
+      "path_jaccard_files_project",
+      "path_jaccard_dir1_project",
+      "path_jaccard_dir2_project",
+      "path_dice_files_global",
+      "path_dice_dir1_global",
+      "path_dice_dir2_global",
+      "path_overlap_coeff_files_global",
+      "path_overlap_coeff_dir1_global",
+      "path_overlap_coeff_dir2_global",
+      "path_cosine_files_global",
+      "path_cosine_dir1_global",
+      "path_cosine_dir2_global",
+      "path_dice_files_project",
+      "path_dice_dir1_project",
+      "path_dice_dir2_project",
+      "path_overlap_coeff_files_project",
+      "path_overlap_coeff_dir1_project",
+      "path_overlap_coeff_dir2_project",
+      "path_cosine_files_project",
+      "path_cosine_dir1_project",
+      "path_cosine_dir2_project",
+      "extraction_date"
+    ]
+  },
+  "time_range": {
+    "column": "request_time",
+    "start": "2012-06-20 07:20:24",
+    "end": "2025-09-27 10:39:10",
+    "duration_days": 4847,
+    "duration_years": 13.270362765229295
+  },
+  "reviewers": {
+    "column": "reviewer_email",
+    "total": 1379,
+    "reviews_per_reviewer": {
+      "mean": 99.80565627266135,
+      "median": 3.0,
+      "p25": 1.0,
+      "p75": 11.0,
+      "p90": 101.20000000000005,
+      "max": 3951
+    }
+  },
+  "projects": {
+    "column": "project",
+    "total": 5,
+    "top_10": [
+      {
+        "project": "openstack/cinder",
+        "reviews": 71604,
+        "reviewers": 615
+      },
+      {
+        "project": "openstack/neutron",
+        "reviews": 32888,
+        "reviewers": 503
+      },
+      {
+        "project": "openstack/nova",
+        "reviews": 27328,
+        "reviewers": 565
+      },
+      {
+        "project": "openstack/glance",
+        "reviews": 3273,
+        "reviewers": 203
+      },
+      {
+        "project": "openstack/keystone",
+        "reviews": 2539,
+        "reviewers": 202
+      }
+    ]
+  }
+}
