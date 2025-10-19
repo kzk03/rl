@@ -1,0 +1,59 @@
+================================================================================
+LINEAR TEMPORAL + INTERACTION IRL ANALYSIS REPORT
+================================================================================
+
+Configuration:
+  Total features: 696
+  Use step-diff: True
+  Use interaction: True
+
+Performance:
+  accuracy: 0.9105
+  auc_roc: 0.9065
+  auc_pr: 0.7509
+  f1: 0.6751
+
+================================================================================
+TOP 30 FEATURES
+================================================================================
+
+- state_feat0_max                                                         Weight:  -0.8382  (DECREASE continuation) [temporal]
++ action_feat1_last                                                       Weight:   0.8107  (INCREASE continuation) [temporal]
++ state_feat16_min                                                        Weight:   0.8010  (INCREASE continuation) [temporal]
++ state_feat15_short_mean                                                 Weight:   0.6988  (INCREASE continuation) [temporal]
++ action_feat1_short_mean                                                 Weight:   0.6960  (INCREASE continuation) [temporal]
+- action_feat1_max                                                        Weight:  -0.6844  (DECREASE continuation) [temporal]
++ state_feat16_change                                                     Weight:   0.6662  (INCREASE continuation) [temporal]
++ state_feat26_max                                                        Weight:   0.6576  (INCREASE continuation) [temporal]
+- state_feat26_last                                                       Weight:  -0.6537  (DECREASE continuation) [temporal]
++ state_feat11_min                                                        Weight:   0.6517  (INCREASE continuation) [temporal]
++ action_feat1_change                                                     Weight:   0.6456  (INCREASE continuation) [temporal]
++ action_feat7_max                                                        Weight:   0.6359  (INCREASE continuation) [temporal]
+- state_feat3_min                                                         Weight:  -0.6219  (DECREASE continuation) [temporal]
+- state_feat18_min                                                        Weight:  -0.6089  (DECREASE continuation) [temporal]
++ state_feat0_volatility                                                  Weight:   0.5995  (INCREASE continuation) [temporal]
++ state_feat10_last                                                       Weight:   0.5960  (INCREASE continuation) [temporal]
+- state_feat10_trend                                                      Weight:  -0.5594  (DECREASE continuation) [temporal]
++ state_feat31_short_mean                                                 Weight:   0.5579  (INCREASE continuation) [temporal]
++ action_feat4_min                                                        Weight:   0.5563  (INCREASE continuation) [temporal]
++ state_feat7_trend                                                       Weight:   0.5542  (INCREASE continuation) [temporal]
+- state_feat12_change                                                     Weight:  -0.5518  (DECREASE continuation) [temporal]
++ action_feat5_max                                                        Weight:   0.5514  (INCREASE continuation) [temporal]
++ action_feat3_min                                                        Weight:   0.5495  (INCREASE continuation) [temporal]
+- state_feat25_short_mean                                                 Weight:  -0.5389  (DECREASE continuation) [temporal]
++ action_feat4_change                                                     Weight:   0.5386  (INCREASE continuation) [temporal]
+- state_feat5_min                                                         Weight:  -0.5150  (DECREASE continuation) [temporal]
++ state_feat9_min                                                         Weight:   0.4979  (INCREASE continuation) [temporal]
++ action_feat4_last                                                       Weight:   0.4919  (INCREASE continuation) [temporal]
+- state_feat22_max                                                        Weight:  -0.4884  (DECREASE continuation) [temporal]
+- state_feat12_min                                                        Weight:  -0.4818  (DECREASE continuation) [temporal]
+
+================================================================================
+CATEGORY IMPORTANCE
+================================================================================
+
+  temporal               81.8980
+  step_diff              26.7904
+  interaction            10.9249
+
+================================================================================
