@@ -1,2 +1,0 @@
-learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,tn,fp,fn,tp,model_path
-3,3,all,113,84.070796460177,0.2727272727272727,0.9484609722430027,0.9777777777777777,0.9565217391304348,1.0,0,1,0,22,importants/true_irl_test/models/multi_project/irl_h3m_t3m.pth
