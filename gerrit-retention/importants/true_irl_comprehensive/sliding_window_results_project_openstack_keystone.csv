@@ -1,0 +1,13 @@
+learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,model_path,tn,fp,fn,tp
+6,3,openstack/keystone,7,85.71428571428571,0.0,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h6m_t3m.pth,,,,
+6,6,openstack/keystone,7,85.71428571428571,0.0,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h6m_t6m.pth,,,,
+6,9,openstack/keystone,7,85.71428571428571,0.0,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h6m_t9m.pth,,,,
+6,12,openstack/keystone,7,85.71428571428571,0.0,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h6m_t12m.pth,,,,
+9,3,openstack/keystone,14,64.28571428571429,1.0,1.0,0.8,0.6666666666666666,1.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h9m_t3m.pth,0.0,1.0,0.0,2.0
+9,6,openstack/keystone,14,64.28571428571429,0.0,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h9m_t6m.pth,,,,
+9,9,openstack/keystone,14,64.28571428571429,,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h9m_t9m.pth,0.0,3.0,0.0,0.0
+9,12,openstack/keystone,14,64.28571428571429,0.5,0.8333333333333333,0.8,0.6666666666666666,1.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h9m_t12m.pth,0.0,1.0,0.0,2.0
+12,3,openstack/keystone,15,60.0,,1.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h12m_t3m.pth,0.0,0.0,3.0,0.0
+12,6,openstack/keystone,15,60.0,0.5,0.8333333333333333,0.8,0.6666666666666666,1.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h12m_t6m.pth,0.0,1.0,0.0,2.0
+12,9,openstack/keystone,15,60.0,0.75,0.5,0.5,0.3333333333333333,1.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h12m_t9m.pth,0.0,2.0,0.0,1.0
+12,12,openstack/keystone,15,60.0,1.0,1.0,0.5,0.3333333333333333,1.0,importants/true_irl_comprehensive/models/project_openstack_keystone/irl_h12m_t12m.pth,0.0,2.0,0.0,1.0

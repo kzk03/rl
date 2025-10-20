@@ -1,0 +1,17 @@
+learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,model_path,tn,fp,fn,tp
+3,3,openstack/nova,37,83.78378378378379,0.0,0.0,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h3m_t3m.pth,,,,
+3,6,openstack/nova,37,83.78378378378379,0.9166666666666667,0.9583333333333334,0.8571428571428571,0.75,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h3m_t6m.pth,0.0,2.0,0.0,6.0
+3,9,openstack/nova,37,78.37837837837837,1.0,1.0,0.7692307692307693,0.625,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h3m_t9m.pth,0.0,3.0,0.0,5.0
+3,12,openstack/nova,37,72.97297297297297,0.5833333333333334,0.8178571428571428,0.8571428571428571,0.75,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h3m_t12m.pth,0.0,2.0,0.0,6.0
+6,3,openstack/nova,64,68.75,0.9500000000000001,0.9809090909090908,0.8695652173913043,0.7692307692307693,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h6m_t3m.pth,0.0,3.0,0.0,10.0
+6,6,openstack/nova,64,67.1875,0.9166666666666666,0.9935897435897437,0.96,0.9230769230769231,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h6m_t6m.pth,0.0,1.0,0.0,12.0
+6,9,openstack/nova,64,64.0625,0.8055555555555556,0.9202380952380953,0.8181818181818182,0.6923076923076923,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h6m_t9m.pth,0.0,4.0,0.0,9.0
+6,12,openstack/nova,64,59.375,0.8333333333333334,0.8121315192743763,0.7,0.5384615384615384,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h6m_t12m.pth,0.0,6.0,0.0,7.0
+9,3,openstack/nova,90,56.666666666666664,0.6749999999999999,0.6915886809269162,0.6153846153846154,0.4444444444444444,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h9m_t3m.pth,0.0,10.0,0.0,8.0
+9,6,openstack/nova,90,55.55555555555556,0.8181818181818181,0.902262888626525,0.7586206896551724,0.6111111111111112,1.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h9m_t6m.pth,0.0,7.0,0.0,11.0
+9,9,openstack/nova,90,53.333333333333336,0.5178571428571428,0.8248547904010088,0.42105263157894735,0.8,0.2857142857142857,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h9m_t9m.pth,3.0,1.0,10.0,4.0
+9,12,openstack/nova,90,50.0,0.6461538461538461,0.8080624503701426,0.25,0.6666666666666666,0.15384615384615385,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h9m_t12m.pth,4.0,1.0,11.0,2.0
+12,3,openstack/nova,93,58.06451612903226,0.5384615384615384,0.7497317010474905,0.0,0.0,0.0,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h12m_t3m.pth,6.0,0.0,13.0,0.0
+12,6,openstack/nova,93,56.98924731182796,0.75,0.9018146124028477,0.5454545454545454,0.8571428571428571,0.4,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h12m_t6m.pth,3.0,1.0,9.0,6.0
+12,9,openstack/nova,93,53.76344086021505,0.638888888888889,0.6714553477711374,0.18181818181818182,0.5,0.1111111111111111,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h12m_t9m.pth,9.0,1.0,8.0,1.0
+12,12,openstack/nova,93,50.53763440860215,0.7564102564102565,0.8757974931051853,0.47058823529411764,1.0,0.3076923076923077,importants/true_irl_comprehensive/models/project_openstack_nova/irl_h12m_t12m.pth,6.0,0.0,9.0,4.0

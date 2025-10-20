@@ -1,0 +1,17 @@
+learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,tn,fp,fn,tp,model_path
+3,3,openstack/keystone,25,56.00000000000001,0.5,0.7,0.5714285714285714,0.4,1.0,0,3,0,2,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h3m_t3m.pth
+3,6,openstack/keystone,25,48.0,0.5,0.7,0.5714285714285714,0.4,1.0,0,3,0,2,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h3m_t6m.pth
+3,9,openstack/keystone,25,48.0,,0.0,0.0,0.0,0.0,0,5,0,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h3m_t9m.pth
+3,12,openstack/keystone,25,44.0,0.75,0.5,0.3333333333333333,0.2,1.0,0,4,0,1,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h3m_t12m.pth
+6,3,openstack/keystone,36,44.44444444444444,0.6666666666666666,0.7916666666666666,0.5,1.0,0.3333333333333333,5,0,2,1,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h6m_t3m.pth
+6,6,openstack/keystone,36,38.88888888888889,1.0,1.0,0.0,0.0,0.0,7,0,1,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h6m_t6m.pth
+6,9,openstack/keystone,36,38.88888888888889,0.9333333333333333,0.9166666666666665,0.0,0.0,0.0,5,0,3,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h6m_t9m.pth
+6,12,openstack/keystone,36,36.11111111111111,0.6,0.8392857142857142,0.0,0.0,0.0,3,0,5,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h6m_t12m.pth
+9,3,openstack/keystone,42,45.23809523809524,0.35,0.6111111111111112,0.0,0.0,0.0,4,0,5,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h9m_t3m.pth
+9,6,openstack/keystone,42,40.476190476190474,0.3,0.42658730158730157,0.0,0.0,0.0,5,0,4,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h9m_t6m.pth
+9,9,openstack/keystone,42,40.476190476190474,1.0,1.0,0.0,0.0,0.0,5,0,4,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h9m_t9m.pth
+9,12,openstack/keystone,42,38.095238095238095,0.4285714285714286,0.3611111111111111,0.0,0.0,0.0,6,1,2,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h9m_t12m.pth
+12,3,openstack/keystone,49,42.857142857142854,0.7916666666666666,0.8773809523809524,0.5,1.0,0.3333333333333333,4,0,4,2,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h12m_t3m.pth
+12,6,openstack/keystone,49,38.775510204081634,1.0,1.0,0.0,0.0,0.0,6,0,4,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h12m_t6m.pth
+12,9,openstack/keystone,49,38.775510204081634,0.5833333333333334,0.6,0.4,1.0,0.25,6,0,3,1,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h12m_t9m.pth
+12,12,openstack/keystone,49,36.734693877551024,0.72,0.6683333333333333,0.0,0.0,0.0,5,0,5,0,importants/true_irl_comprehensive_2022/models/project_openstack_keystone/irl_h12m_t12m.pth

@@ -253,7 +253,7 @@ def extract_trajectories_fixed_population(
     seq_len: int,
     fixed_reviewer_set: set,
     project: str = None,
-) -> Tuple[List[Dict], List[int]]:
+) -> Tuple[List[Dict], List[int], List[str]]:
     """
     Extract trajectories for IRL training WITH FIXED REVIEWER POPULATION.
 
@@ -275,6 +275,7 @@ def extract_trajectories_fixed_population(
     Returns:
         trajectories: List of trajectory dicts
         labels: List of continuation labels (0/1)
+        reviewer_ids: List of reviewer emails corresponding to each trajectory
     """
     learning_start = snapshot_date - timedelta(days=learning_months * 30)
     prediction_start = snapshot_date + timedelta(days=prediction_months * 30)
@@ -313,6 +314,7 @@ def extract_trajectories_fixed_population(
 
     trajectories = []
     labels = []
+    reviewer_ids = []
 
     for reviewer in active_reviewers:
         reviewer_reviews = learning_df[learning_df["reviewer"] == reviewer].sort_values("timestamp")
@@ -357,6 +359,7 @@ def extract_trajectories_fixed_population(
         # Label: 1 if continued, 0 if churned
         label = 1 if reviewer in continued_reviewers else 0
         labels.append(label)
+        reviewer_ids.append(reviewer)
 
     continuation_rate = np.mean(labels) * 100 if labels else 0
     print(f"  Extracted {len(trajectories)} trajectories")
@@ -364,7 +367,7 @@ def extract_trajectories_fixed_population(
     print(f"  Checking continuation AFTER: {prediction_start.date()} ({prediction_months} months after snapshot)")
     print(f"  Continuation rate: {continuation_rate:.1f}%")
 
-    return trajectories, labels
+    return trajectories, labels, reviewer_ids
 
 
 def extract_state_features(
@@ -454,12 +457,13 @@ def extract_action_features(
 def train_and_evaluate(
     trajectories: List[Dict],
     labels: List[int],
+    reviewer_ids: List[str],
     seq_len: int,
     epochs: int,
-) -> Tuple[LSTMContinuationPredictor, Dict[str, float]]:
+) -> Tuple[LSTMContinuationPredictor, Dict[str, float], pd.DataFrame]:
     """Train LSTM continuation predictor and evaluate."""
     if len(trajectories) == 0:
-        return None, {}
+        return None, {}, pd.DataFrame()
 
     # Split train/test (80/20)
     n_train = int(len(trajectories) * 0.8)
@@ -471,10 +475,11 @@ def train_and_evaluate(
     train_labels = [labels[i] for i in train_idx]
     test_trajectories = [trajectories[i] for i in test_idx]
     test_labels = [labels[i] for i in test_idx]
+    test_reviewer_ids = [reviewer_ids[i] for i in test_idx]
 
     if len(test_trajectories) == 0:
         print("  WARNING: No test data available")
-        return None, {}
+        return None, {}, pd.DataFrame()
 
     # Initialize LSTM predictor
     model = LSTMContinuationPredictor(state_dim=32, action_dim=9, hidden_dim=128, dropout=0.3)
@@ -593,7 +598,15 @@ def train_and_evaluate(
     print(f"  AUC-PR: {metrics['auc_pr']:.4f}")
     print(f"  F1: {metrics['f1']:.4f}")
 
-    return model, metrics
+    # Create predictions DataFrame with raw probabilities
+    predictions_df = pd.DataFrame({
+        'reviewer_email': test_reviewer_ids,
+        'true_label': test_labels,
+        'predicted_probability': predictions,
+        'predicted_binary': (predictions >= 0.5).astype(int)
+    })
+
+    return model, metrics, predictions_df
 
 
 def run_sliding_window_evaluation(
@@ -639,7 +652,7 @@ def run_sliding_window_evaluation(
             print(f"{'='*80}")
 
             # Extract trajectories WITH FIXED REVIEWER SET
-            trajectories, labels = extract_trajectories_fixed_population(
+            trajectories, labels, reviewer_ids = extract_trajectories_fixed_population(
                 df, snapshot_date, learning_months, prediction_months, seq_len,
                 fixed_reviewer_set, project
             )
@@ -649,7 +662,7 @@ def run_sliding_window_evaluation(
                 continue
 
             # Train and evaluate
-            model, metrics = train_and_evaluate(trajectories, labels, seq_len, epochs)
+            model, metrics, predictions_df = train_and_evaluate(trajectories, labels, reviewer_ids, seq_len, epochs)
 
             if model is None:
                 print("  Skipping: Training failed")
@@ -663,6 +676,15 @@ def run_sliding_window_evaluation(
             torch.save(model.state_dict(), str(model_path))
             print(f"  Saved model to: {model_path}")
 
+            # Save predictions with raw probabilities
+            predictions_dir = output_dir / "predictions" / mode_name
+            predictions_dir.mkdir(parents=True, exist_ok=True)
+            predictions_file = predictions_dir / f"predictions_h{learning_months}m_t{prediction_months}m.csv"
+            predictions_df['learning_months'] = learning_months
+            predictions_df['prediction_months'] = prediction_months
+            predictions_df.to_csv(predictions_file, index=False)
+            print(f"  Saved predictions to: {predictions_file}")
+
             # Record results
             result = {
                 "learning_months": learning_months,
@@ -672,6 +694,7 @@ def run_sliding_window_evaluation(
                 "continuation_rate": np.mean(labels) * 100,
                 **metrics,
                 "model_path": str(model_path),
+                "predictions_path": str(predictions_file),
             }
             results.append(result)
 

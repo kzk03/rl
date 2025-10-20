@@ -1,0 +1,17 @@
+learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,tn,fp,fn,tp,model_path
+3,3,openstack/cinder,100,76.0,0.607843137254902,0.8994437021526805,0.918918918918919,0.85,1.0,0,3,0,17,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h3m_t3m.pth
+3,6,openstack/cinder,100,74.0,0.90625,0.9794270833333334,0.8888888888888888,0.8,1.0,0,4,0,16,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h3m_t6m.pth
+3,9,openstack/cinder,100,70.0,0.7890625,0.945891792031498,0.8888888888888888,0.8,1.0,0,4,0,16,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h3m_t9m.pth
+3,12,openstack/cinder,100,68.0,0.5595238095238095,0.7862628811185866,0.8235294117647058,0.7,1.0,0,6,0,14,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h3m_t12m.pth
+6,3,openstack/cinder,134,67.91044776119402,0.8380681818181819,0.9135724807599808,0.7441860465116279,0.5925925925925926,1.0,0,11,0,16,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h6m_t3m.pth
+6,6,openstack/cinder,134,65.67164179104478,0.8,0.8680882322186669,0.7142857142857143,0.5555555555555556,1.0,0,12,0,15,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h6m_t6m.pth
+6,9,openstack/cinder,134,61.19402985074627,0.723529411764706,0.8516415229650525,0.6153846153846154,0.8888888888888888,0.47058823529411764,9,1,9,8,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h6m_t9m.pth
+6,12,openstack/cinder,134,59.70149253731343,0.808641975308642,0.9113440308389158,0.43478260869565216,1.0,0.2777777777777778,9,0,13,5,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h6m_t12m.pth
+9,3,openstack/cinder,159,64.77987421383648,0.6153846153846154,0.7316907388692835,0.32,0.6666666666666666,0.21052631578947367,11,2,15,4,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h9m_t3m.pth
+9,6,openstack/cinder,159,62.264150943396224,0.8138528138528138,0.90269700028214,0.625,0.9090909090909091,0.47619047619047616,10,1,11,10,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h9m_t6m.pth
+9,9,openstack/cinder,159,58.490566037735846,0.7611336032388665,0.865344966523176,0.5714285714285714,0.8888888888888888,0.42105263157894735,12,1,11,8,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h9m_t9m.pth
+9,12,openstack/cinder,159,56.60377358490566,0.7725490196078432,0.7869291429817746,0.5,1.0,0.3333333333333333,17,0,10,5,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h9m_t12m.pth
+12,3,openstack/cinder,187,60.42780748663101,0.6907692307692308,0.8383133524471095,0.3870967741935484,1.0,0.24,13,0,19,6,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h12m_t3m.pth
+12,6,openstack/cinder,187,58.288770053475936,0.7008928571428571,0.7937260605161204,0.4375,0.875,0.2916666666666667,13,1,17,7,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h12m_t6m.pth
+12,9,openstack/cinder,187,54.54545454545454,0.8645833333333334,0.8256936815130091,0.6363636363636364,0.875,0.5,23,1,7,7,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h12m_t9m.pth
+12,12,openstack/cinder,187,52.406417112299465,0.7839335180055401,0.823112943950203,0.5185185185185185,0.875,0.3684210526315789,18,1,12,7,importants/true_irl_comprehensive_2022/models/project_openstack_cinder/irl_h12m_t12m.pth

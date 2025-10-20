@@ -1,6 +1,6 @@
 # True IRL Comprehensive Evaluation Report
 
-**Generated**: 2025-10-19 13:41:05
+**Generated**: 2025-10-19 22:13:35
 
 ## Executive Summary
 
@@ -31,7 +31,7 @@ This report presents a comprehensive evaluation of the **True IRL system** (Enha
 
 ## Experimental Setup
 
-- **Snapshot Date**: 2020-01-01
+- **Snapshot Date**: 2022-01-01
 - **Learning Periods**: 3, 6, 9, 12 months
 - **Prediction Periods**: 3, 6, 9, 12 months
 - **Sequence Length**: 15
@@ -42,10 +42,10 @@ This report presents a comprehensive evaluation of the **True IRL system** (Enha
 
 **Unlike other approaches**, this evaluation matches the IRL training data period to the learning period:
 
-- **3-month learning**: Uses data from 2019-10-03 to 2020-01-01 for IRL training
-- **6-month learning**: Uses data from 2019-07-05 to 2020-01-01 for IRL training
-- **9-month learning**: Uses data from 2019-04-06 to 2020-01-01 for IRL training
-- **12-month learning**: Uses data from 2019-01-06 to 2020-01-01 for IRL training
+- **3-month learning**: Uses data from 2021-10-03 to 2022-01-01 for IRL training
+- **6-month learning**: Uses data from 2021-07-05 to 2022-01-01 for IRL training
+- **9-month learning**: Uses data from 2021-04-06 to 2022-01-01 for IRL training
+- **12-month learning**: Uses data from 2021-01-06 to 2022-01-01 for IRL training
 
 This ensures that the model learns from a representative sample of the learning period it will be predicting for.
 
@@ -57,9 +57,9 @@ This ensures that the model learns from a representative sample of the learning 
 
 **Best Configurations**:
 
-- **AUC-ROC**: 0.8690 (6m learning × 3m prediction)
-- **AUC-PR**: 0.9881 (3m learning × 3m prediction)
-- **F1**: 0.9778 (3m learning × 3m prediction)
+- **AUC-ROC**: 0.8712 (9m learning × 6m prediction)
+- **AUC-PR**: 0.9323 (9m learning × 6m prediction)
+- **F1**: 0.8409 (3m learning × 6m prediction)
 
 **See heatmaps**: `heatmaps_multi_project.png`
 
@@ -71,9 +71,9 @@ This ensures that the model learns from a representative sample of the learning 
 
 **Best Configurations**:
 
-- **AUC-ROC**: 1.0000 (3m learning × 9m prediction)
-- **AUC-PR**: 1.0000 (3m learning × 9m prediction)
-- **F1**: 0.9600 (6m learning × 6m prediction)
+- **AUC-ROC**: 0.8542 (6m learning × 9m prediction)
+- **AUC-PR**: 0.8867 (3m learning × 12m prediction)
+- **F1**: 0.7200 (3m learning × 3m prediction)
 
 **See heatmaps**: `heatmaps_project_openstack_nova.png`
 
@@ -85,9 +85,9 @@ This ensures that the model learns from a representative sample of the learning 
 
 **Best Configurations**:
 
-- **AUC-ROC**: 0.9714 (9m learning × 3m prediction)
-- **AUC-PR**: 0.9911 (9m learning × 3m prediction)
-- **F1**: 0.9091 (3m learning × 12m prediction)
+- **AUC-ROC**: 0.9062 (3m learning × 6m prediction)
+- **AUC-PR**: 0.9794 (3m learning × 6m prediction)
+- **F1**: 0.9189 (3m learning × 3m prediction)
 
 **See heatmaps**: `heatmaps_project_openstack_cinder.png`
 
@@ -99,9 +99,9 @@ This ensures that the model learns from a representative sample of the learning 
 
 **Best Configurations**:
 
-- **AUC-ROC**: 1.0000 (3m learning × 6m prediction)
-- **AUC-PR**: 1.0000 (3m learning × 6m prediction)
-- **F1**: 0.8235 (6m learning × 9m prediction)
+- **AUC-ROC**: 0.9231 (3m learning × 9m prediction)
+- **AUC-PR**: 0.9760 (3m learning × 9m prediction)
+- **F1**: 0.7586 (3m learning × 6m prediction)
 
 **See heatmaps**: `heatmaps_project_openstack_neutron.png`
 
@@ -109,13 +109,13 @@ This ensures that the model learns from a representative sample of the learning 
 
 ### Project Openstack Glance
 
-**Total Configurations**: 12
+**Total Configurations**: 16
 
 **Best Configurations**:
 
-- **AUC-ROC**: 1.0000 (6m learning × 3m prediction)
-- **AUC-PR**: 1.0000 (6m learning × 3m prediction)
-- **F1**: 0.0000 (6m learning × 3m prediction)
+- **AUC-ROC**: 1.0000 (3m learning × 9m prediction)
+- **AUC-PR**: 1.0000 (3m learning × 9m prediction)
+- **F1**: 1.0000 (9m learning × 12m prediction)
 
 **See heatmaps**: `heatmaps_project_openstack_glance.png`
 
@@ -123,13 +123,13 @@ This ensures that the model learns from a representative sample of the learning 
 
 ### Project Openstack Keystone
 
-**Total Configurations**: 12
+**Total Configurations**: 16
 
 **Best Configurations**:
 
-- **AUC-ROC**: 1.0000 (9m learning × 3m prediction)
-- **AUC-PR**: 1.0000 (9m learning × 3m prediction)
-- **F1**: 0.8000 (9m learning × 3m prediction)
+- **AUC-ROC**: 1.0000 (6m learning × 6m prediction)
+- **AUC-PR**: 1.0000 (6m learning × 6m prediction)
+- **F1**: 0.5714 (3m learning × 3m prediction)
 
 **See heatmaps**: `heatmaps_project_openstack_keystone.png`
 
@@ -191,7 +191,7 @@ Based on the heatmaps, you can identify:
 ## Files Generated
 
 ```
-importants/true_irl_comprehensive/
+importants/true_irl_comprehensive_2022/
 ├── models/multi_project/
 │   └── irl_hXm_tXm.pth  (trained model files)
 ├── sliding_window_results_multi_project.csv
@@ -226,15 +226,15 @@ To reproduce these results, run:
 ```bash
 uv run python scripts/training/irl/evaluate_true_irl_comprehensive.py \
   --reviews data/review_requests_openstack_multi_5y_detail.csv \
-  --snapshot-date 2020-01-01 \
+  --snapshot-date 2022-01-01 \
   --learning-months 3 6 9 12 \
   --prediction-months 3 6 9 12 \
   --mode both \
   --epochs 30 \
   --seq-len 15 \
-  --output importants/true_irl_comprehensive
+  --output importants/true_irl_comprehensive_2022
 ```
 
 ---
 
-*Report generated by evaluate_true_irl_comprehensive.py on 2025-10-19 13:41:05*
+*Report generated by evaluate_true_irl_comprehensive.py on 2025-10-19 22:13:35*

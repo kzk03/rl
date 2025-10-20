@@ -1,0 +1,13 @@
+learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,tn,fp,fn,tp,model_path
+6,3,openstack/glance,20,35.0,1.0,1.0,0.0,0.0,0.0,2.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h6m_t3m.pth
+6,6,openstack/glance,20,35.0,1.0,1.0,0.0,0.0,0.0,2.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h6m_t6m.pth
+6,9,openstack/glance,20,35.0,1.0,1.0,0.0,0.0,0.0,3.0,0.0,1.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h6m_t9m.pth
+6,12,openstack/glance,20,35.0,1.0,1.0,0.0,0.0,0.0,3.0,0.0,1.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h6m_t12m.pth
+9,3,openstack/glance,23,34.78260869565217,1.0,1.0,0.0,0.0,0.0,3.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h9m_t3m.pth
+9,6,openstack/glance,23,34.78260869565217,1.0,1.0,0.0,0.0,0.0,4.0,0.0,1.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h9m_t6m.pth
+9,9,openstack/glance,23,34.78260869565217,0.0,0.2,0.0,0.0,0.0,4.0,0.0,1.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h9m_t9m.pth
+9,12,openstack/glance,23,34.78260869565217,1.0,1.0,0.0,0.0,0.0,3.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h9m_t12m.pth
+12,3,openstack/glance,24,33.33333333333333,0.0,0.325,0.0,0.0,0.0,3.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h12m_t3m.pth
+12,6,openstack/glance,24,33.33333333333333,0.0,0.0,0.0,0.0,0.0,,,,,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h12m_t6m.pth
+12,9,openstack/glance,24,33.33333333333333,0.5,0.7,0.0,0.0,0.0,3.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h12m_t9m.pth
+12,12,openstack/glance,24,33.33333333333333,1.0,1.0,0.0,0.0,0.0,3.0,0.0,2.0,0.0,importants/true_irl_comprehensive/models/project_openstack_glance/irl_h12m_t12m.pth
