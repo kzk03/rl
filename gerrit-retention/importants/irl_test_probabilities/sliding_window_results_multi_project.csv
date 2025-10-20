@@ -1,2 +1,0 @@
-learning_months,prediction_months,project,n_trajectories,continuation_rate,auc_roc,auc_pr,f1,precision,recall,tn,fp,fn,tp,model_path,predictions_path
-12,6,all,461,50.97613882863341,0.7924397031539888,0.8391441776943626,0.6461538461538462,1.0,0.4772727272727273,49,0,23,21,importants/irl_test_probabilities/models/multi_project/irl_h12m_t6m.pth,importants/irl_test_probabilities/predictions/multi_project/predictions_h12m_t6m.csv
