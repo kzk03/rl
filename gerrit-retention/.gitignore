@@ -140,6 +140,8 @@ cython_debug/
 # macOS
 .DS_Store
 
+*.sh
+
 # Windows
 Thumbs.db
 ehthumbs.db
