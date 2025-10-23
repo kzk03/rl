@@ -178,6 +178,10 @@ def main():
     parser.add_argument('--future-window-end', type=int, default=3, help='将来窓終了（ヶ月）')
     parser.add_argument('--seq-len', type=int, default=20, help='LSTMシーケンス長')
     parser.add_argument('--epochs', type=int, default=30, help='訓練エポック数')
+    parser.add_argument('--eval-future-window-start', type=int, default=None, 
+                        help='評価時の将来窓開始（ヶ月、デフォルト=future-window-start）')
+    parser.add_argument('--eval-future-window-end', type=int, default=None, 
+                        help='評価時の将来窓終了（ヶ月、デフォルト=future-window-end）')
     parser.add_argument('--output', type=str, required=True, help='出力ディレクトリ')
     
     args = parser.parse_args()
@@ -187,13 +191,20 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info("=" * 80)
+    # 評価用の将来窓パラメータ（デフォルトは訓練時と同じ）
+    eval_future_start = args.eval_future_window_start if args.eval_future_window_start is not None else args.future_window_start
+    eval_future_end = args.eval_future_window_end if args.eval_future_window_end is not None else args.future_window_end
+    
     logger.info("各タイムステップラベル付きIRL訓練")
     logger.info("=" * 80)
     logger.info(f"レビューログ: {args.reviews}")
     logger.info(f"学習期間: {args.train_start} ～ {args.train_end}")
     logger.info(f"評価期間: {args.eval_start} ～ {args.eval_end}")
     logger.info(f"履歴ウィンドウ: {args.history_window}ヶ月")
-    logger.info(f"将来窓: {args.future_window_start}～{args.future_window_end}ヶ月")
+    logger.info(f"訓練ラベル: {args.future_window_start}～{args.future_window_end}ヶ月")
+    logger.info(f"評価ラベル: {eval_future_start}～{eval_future_end}ヶ月")
+    if eval_future_start != args.future_window_start or eval_future_end != args.future_window_end:
+        logger.info("  ⚠️ 訓練と評価で異なるラベル期間を使用（クロス評価）")
     logger.info(f"LSTMシーケンス長: {args.seq_len}")
     logger.info(f"エポック数: {args.epochs}")
     logger.info(f"出力: {output_dir}")
@@ -240,8 +251,8 @@ def main():
         df=df,
         cutoff_date=train_end,  # 訓練終了日から評価
         history_window_months=args.history_window,
-        future_window_start_months=args.future_window_start,
-        future_window_end_months=args.future_window_end,
+        future_window_start_months=eval_future_start,
+        future_window_end_months=eval_future_end,
         min_history_events=3,
     )
     

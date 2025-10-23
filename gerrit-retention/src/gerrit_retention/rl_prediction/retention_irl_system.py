@@ -438,6 +438,128 @@ class RetentionIRLSystem:
             'epochs_trained': epochs
         }
     
+    def train_irl_multi_step_labels(self,
+                                    expert_trajectories: List[Dict[str, Any]],
+                                    epochs: int = 50) -> Dict[str, Any]:
+        """
+        各タイムステップラベル付きIRLモデルを訓練
+        
+        Args:
+            expert_trajectories: エキスパート軌跡データ（各軌跡に step_labels を含む）
+            epochs: 訓練エポック数
+            
+        Returns:
+            Dict[str, Any]: 訓練結果
+        """
+        logger.info(f"各タイムステップラベル付きIRL訓練開始: {len(expert_trajectories)}軌跡, {epochs}エポック")
+        
+        training_losses = []
+        
+        # 正例と負例をカウント
+        total_steps = sum(t.get('seq_len', len(t.get('step_labels', []))) for t in expert_trajectories)
+        positive_steps = sum(sum(1 for label in t.get('step_labels', []) if label) for t in expert_trajectories)
+        positive_rate = positive_steps / total_steps if total_steps > 0 else 0.5
+        
+        # クラスバランスを考慮
+        positive_rate = max(0.01, min(0.99, positive_rate))  # 0や1にならないようクリップ
+        neg_weight = positive_rate / (1 - positive_rate)
+        
+        logger.info(f"総ステップ数: {total_steps}, 継続ステップ: {positive_steps} ({positive_rate:.1%})")
+        logger.info(f"負例の重み: {neg_weight:.2f}")
+        
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            batch_count = 0
+            
+            for trajectory in expert_trajectories:
+                try:
+                    # 軌跡から状態と行動を抽出
+                    developer = trajectory['developer']
+                    activity_history = trajectory['activity_history']
+                    step_labels = trajectory.get('step_labels', [])
+                    context_date = trajectory.get('context_date', datetime.now())
+                    
+                    if not step_labels or not activity_history:
+                        continue
+                    
+                    # 状態と行動を抽出
+                    state = self.extract_developer_state(developer, activity_history, context_date)
+                    actions = self.extract_developer_actions(activity_history, context_date)
+                    
+                    if not actions:
+                        continue
+                    
+                    # 各ステップで損失を計算
+                    step_losses = []
+                    
+                    for step_idx, (action, label) in enumerate(zip(actions, step_labels)):
+                        # 状態テンソル
+                        state_tensor = self.state_to_tensor(state).unsqueeze(0).unsqueeze(0)  # [1, 1, state_dim]
+                        
+                        # 行動テンソル
+                        action_tensor = self.action_to_tensor(action).unsqueeze(0).unsqueeze(0)  # [1, 1, action_dim]
+                        
+                        # 前向き計算
+                        predicted_reward, predicted_continuation = self.network(
+                            state_tensor, action_tensor
+                        )
+                        
+                        # ターゲット
+                        target_label = 1.0 if label else 0.0
+                        target_reward = torch.tensor([[target_label]], device=self.device)
+                        target_continuation = torch.tensor([[target_label]], device=self.device)
+                        
+                        # 損失計算（重み付き）
+                        if label:
+                            # 正例
+                            weight = 1.0
+                        else:
+                            # 負例
+                            weight = neg_weight
+                        
+                        reward_loss = self.mse_loss(predicted_reward, target_reward) * weight
+                        continuation_loss = self.focal_loss(predicted_continuation, target_continuation) * weight
+                        
+                        step_loss = reward_loss + continuation_loss
+                        step_losses.append(step_loss)
+                    
+                    if step_losses:
+                        # 各ステップの平均損失
+                        total_loss = torch.stack(step_losses).mean()
+                        
+                        # バックプロパゲーション
+                        self.optimizer.zero_grad()
+                        total_loss.backward()
+                        self.optimizer.step()
+                        
+                        epoch_loss += total_loss.item()
+                        batch_count += 1
+                
+                except Exception as e:
+                    logger.warning(f"軌跡処理エラー: {e}")
+                    continue
+            
+            avg_loss = epoch_loss / max(batch_count, 1)
+            training_losses.append(avg_loss)
+            
+            # 学習率スケジューラ（あれば）
+            if hasattr(self, 'scheduler') and self.scheduler is not None:
+                self.scheduler.step(avg_loss)
+                current_lr = self.optimizer.param_groups[0]['lr']
+                if epoch % 10 == 0:
+                    logger.info(f"エポック {epoch}: 平均損失 = {avg_loss:.4f}, LR = {current_lr:.6f}")
+            else:
+                if epoch % 10 == 0:
+                    logger.info(f"エポック {epoch}: 平均損失 = {avg_loss:.4f}")
+        
+        logger.info("各タイムステップラベル付きIRL訓練完了")
+        
+        return {
+            'training_losses': training_losses,
+            'final_loss': training_losses[-1] if training_losses else 0.0,
+            'epochs_trained': epochs
+        }
+    
     def predict_continuation_probability(self,
                                        developer: Dict[str, Any],
                                        activity_history: List[Dict[str, Any]],

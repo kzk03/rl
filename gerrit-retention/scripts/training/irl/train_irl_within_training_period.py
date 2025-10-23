@@ -233,6 +233,338 @@ def extract_temporal_trajectories_within_training_period(
     return trajectories
 
 
+def extract_multi_step_label_trajectories(
+    df: pd.DataFrame,
+    train_start: pd.Timestamp,
+    train_end: pd.Timestamp,
+    history_window_months: int = 12,
+    future_window_start_months: int = 0,
+    future_window_end_months: int = 3,
+    sampling_interval_months: int = 1,
+    seq_len: int = 50,
+    min_history_events: int = 3,
+    reviewer_col: str = 'reviewer_email',
+    date_col: str = 'request_time'
+) -> List[Dict[str, Any]]:
+    """
+    各タイムステップラベル付き軌跡を抽出
+    
+    重要:
+    - seq_len個の実際の活動タイムスタンプを使用
+    - 各タイムステップからの将来貢献をラベル付け
+    - すべてのデータが学習期間内で完結
+    
+    Args:
+        df: レビューログ
+        train_start: 学習期間の開始日
+        train_end: 学習期間の終了日
+        history_window_months: 履歴ウィンドウ（ヶ月）
+        future_window_start_months: 将来窓の開始（ヶ月）
+        future_window_end_months: 将来窓の終了（ヶ月）
+        sampling_interval_months: サンプリング間隔（ヶ月）
+        seq_len: 使用する活動数（最新seq_len個）
+        min_history_events: 最小イベント数
+        reviewer_col: レビュアーカラム名
+        date_col: 日付カラム名
+    
+    Returns:
+        軌跡リスト（各軌跡に seq_len 個のラベルを含む）
+    """
+    logger.info("=" * 80)
+    logger.info("各タイムステップラベル付き軌跡抽出を開始")
+    logger.info(f"学習期間: {train_start} ～ {train_end}")
+    logger.info(f"履歴ウィンドウ: {history_window_months}ヶ月")
+    logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    logger.info(f"seq_len: {seq_len}（最新{seq_len}個の活動を使用）")
+    logger.info("=" * 80)
+    
+    trajectories = []
+    
+    # サンプリング可能範囲を計算
+    min_sampling_date = train_start + pd.DateOffset(months=history_window_months)
+    max_sampling_date = train_end - pd.DateOffset(months=future_window_end_months)
+    
+    logger.info(f"サンプリング可能範囲: {min_sampling_date} ～ {max_sampling_date}")
+    
+    # サンプリング時点を生成
+    sampling_points = []
+    current = min_sampling_date
+    
+    while current <= max_sampling_date:
+        sampling_points.append(current)
+        current += pd.DateOffset(months=sampling_interval_months)
+    
+    logger.info(f"サンプリング時点数: {len(sampling_points)}")
+    
+    # 全レビュアーを取得
+    all_reviewers = df[reviewer_col].unique()
+    logger.info(f"レビュアー数: {len(all_reviewers)}")
+    
+    # 各サンプリング時点でサンプルを生成
+    for idx, sampling_point in enumerate(sampling_points):
+        if (idx + 1) % 5 == 0 or idx == 0:
+            logger.info(f"サンプリング時点 {idx+1}/{len(sampling_points)}: {sampling_point}")
+        
+        # 履歴期間
+        history_start = sampling_point - pd.DateOffset(months=history_window_months)
+        history_end = sampling_point
+        
+        # この時点の履歴データ
+        history_df = df[
+            (df[date_col] >= history_start) &
+            (df[date_col] < history_end)
+        ]
+        
+        # レビュアーごとにサンプルを生成
+        reviewers_with_history = history_df[reviewer_col].unique()
+        
+        for reviewer in reviewers_with_history:
+            # このレビュアーの履歴
+            reviewer_history = history_df[history_df[reviewer_col] == reviewer]
+            
+            # 最小イベント数を満たさない場合はスキップ
+            if len(reviewer_history) < min_history_events:
+                continue
+            
+            # 活動履歴を時系列順に並べる
+            reviewer_history_sorted = reviewer_history.sort_values(date_col)
+            
+            # 最新seq_len個の活動を取得
+            if len(reviewer_history_sorted) > seq_len:
+                reviewer_history_sorted = reviewer_history_sorted.tail(seq_len)
+            
+            # 活動履歴を構築
+            activity_history = []
+            step_dates = []
+            
+            for _, row in reviewer_history_sorted.iterrows():
+                activity = {
+                    'timestamp': row[date_col],
+                    'action_type': 'review',
+                    'project': row.get('project', 'unknown'),
+                }
+                activity_history.append(activity)
+                step_dates.append(row[date_col])
+            
+            # 各タイムステップのラベルを計算
+            step_labels = []
+            for step_date in step_dates:
+                # この時点からの将来窓
+                future_start = step_date + pd.DateOffset(months=future_window_start_months)
+                future_end = step_date + pd.DateOffset(months=future_window_end_months)
+                
+                # 将来窓が学習期間を超える場合はラベル付けしない
+                if future_end > train_end:
+                    step_labels.append(None)
+                    continue
+                
+                # 将来の貢献を計算
+                future_df = df[
+                    (df[date_col] >= future_start) &
+                    (df[date_col] < future_end) &
+                    (df[reviewer_col] == reviewer)
+                ]
+                
+                future_contribution = len(future_df) > 0
+                step_labels.append(future_contribution)
+            
+            # すべてのステップにラベルが付いているか確認
+            if not step_labels or any(label is None for label in step_labels):
+                continue  # ラベルが空、またはいずれかのステップでラベルが付けられない場合はスキップ
+            
+            # 開発者情報
+            developer_info = {
+                'developer_id': reviewer,
+                'first_seen': reviewer_history[date_col].min(),
+                'changes_reviewed': len(reviewer_history),
+                'projects': (
+                    reviewer_history['project'].unique().tolist()
+                    if 'project' in reviewer_history.columns
+                    else []
+                ),
+            }
+            
+            # 軌跡を作成
+            trajectory = {
+                'developer': developer_info,
+                'activity_history': activity_history,
+                'context_date': sampling_point,
+                
+                # 各ステップのラベル
+                'step_labels': step_labels,
+                'seq_len': len(step_labels),
+                
+                # メタデータ
+                'future_window': {
+                    'start_months': future_window_start_months,
+                    'end_months': future_window_end_months,
+                },
+                'history_window': {
+                    'months': history_window_months,
+                    'start_date': history_start,
+                    'end_date': history_end,
+                    'activity_count': len(reviewer_history),
+                },
+                'sampling_point': sampling_point,
+            }
+            
+            trajectories.append(trajectory)
+    
+    # 統計情報
+    if trajectories:
+        total_steps = sum(t['seq_len'] for t in trajectories)
+        positive_steps = sum(sum(1 for label in t['step_labels'] if label) for t in trajectories)
+        positive_rate = positive_steps / total_steps if total_steps > 0 else 0
+        
+        logger.info("=" * 80)
+        logger.info(f"軌跡抽出完了: {len(trajectories)}サンプル")
+        logger.info(f"  総ステップ数: {total_steps}")
+        logger.info(f"  継続ステップ率: {positive_rate:.1%} ({positive_steps}/{total_steps})")
+        logger.info("=" * 80)
+    
+    return trajectories
+
+
+def extract_cutoff_evaluation_trajectories(
+    df: pd.DataFrame,
+    cutoff_date: pd.Timestamp,
+    history_window_months: int = 12,
+    future_window_start_months: int = 0,
+    future_window_end_months: int = 3,
+    min_history_events: int = 3,
+    reviewer_col: str = 'reviewer_email',
+    date_col: str = 'request_time'
+) -> List[Dict[str, Any]]:
+    """
+    Cutoff時点での評価用軌跡を抽出（ロングコントリビュータ予測スタイル）
+    
+    重要:
+    - cutoff_date時点で履歴期間内に活動があった全開発者を対象
+    - 将来貢献は cutoff_date から計算
+    - サンプリングなし（全開発者を評価）
+    
+    Args:
+        df: レビューログ
+        cutoff_date: Cutoff日（通常は訓練終了日）
+        history_window_months: 履歴ウィンドウ（ヶ月）
+        future_window_start_months: 将来窓の開始（ヶ月）
+        future_window_end_months: 将来窓の終了（ヶ月）
+        min_history_events: 最小イベント数
+        reviewer_col: レビュアーカラム名
+        date_col: 日付カラム名
+    
+    Returns:
+        軌跡リスト
+    """
+    logger.info("=" * 80)
+    logger.info("Cutoff評価用軌跡抽出を開始")
+    logger.info(f"Cutoff日: {cutoff_date}")
+    logger.info(f"履歴ウィンドウ: {history_window_months}ヶ月")
+    logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    logger.info("=" * 80)
+    
+    trajectories = []
+    
+    # 履歴期間
+    history_start = cutoff_date - pd.DateOffset(months=history_window_months)
+    history_end = cutoff_date
+    
+    # 将来窓
+    future_start = cutoff_date + pd.DateOffset(months=future_window_start_months)
+    future_end = cutoff_date + pd.DateOffset(months=future_window_end_months)
+    
+    logger.info(f"履歴期間: {history_start} ～ {history_end}")
+    logger.info(f"将来窓: {future_start} ～ {future_end}")
+    
+    # 履歴期間のデータ
+    history_df = df[
+        (df[date_col] >= history_start) &
+        (df[date_col] < history_end)
+    ]
+    
+    # 将来期間のデータ
+    future_df = df[
+        (df[date_col] >= future_start) &
+        (df[date_col] < future_end)
+    ]
+    
+    # 履歴期間内に活動があったレビュアーを対象
+    active_reviewers = history_df[reviewer_col].unique()
+    logger.info(f"履歴期間内の活動レビュアー数: {len(active_reviewers)}")
+    
+    for reviewer in active_reviewers:
+        # このレビュアーの履歴
+        reviewer_history = history_df[history_df[reviewer_col] == reviewer]
+        
+        # 最小イベント数を満たさない場合はスキップ
+        if len(reviewer_history) < min_history_events:
+            continue
+        
+        # 活動履歴を構築
+        activity_history = []
+        for _, row in reviewer_history.iterrows():
+            activity = {
+                'timestamp': row[date_col],
+                'action_type': 'review',
+                'project': row.get('project', 'unknown'),
+            }
+            activity_history.append(activity)
+        
+        # 将来の貢献を計算
+        reviewer_future = future_df[future_df[reviewer_col] == reviewer]
+        future_contribution = len(reviewer_future) > 0
+        
+        # 開発者情報
+        developer_info = {
+            'developer_id': reviewer,
+            'first_seen': reviewer_history[date_col].min(),
+            'changes_reviewed': len(reviewer_history),
+            'projects': (
+                reviewer_history['project'].unique().tolist()
+                if 'project' in reviewer_history.columns
+                else []
+            ),
+        }
+        
+        # 軌跡を作成
+        trajectory = {
+            'developer': developer_info,
+            'activity_history': activity_history,
+            'context_date': cutoff_date,
+            
+            # 将来の貢献をラベルとして格納
+            'future_contribution': future_contribution,
+            
+            # メタデータ
+            'future_window': {
+                'start_months': future_window_start_months,
+                'end_months': future_window_end_months,
+                'start_date': future_start,
+                'end_date': future_end,
+                'activity_count': len(reviewer_future),
+            },
+            'history_window': {
+                'months': history_window_months,
+                'start_date': history_start,
+                'end_date': history_end,
+                'activity_count': len(reviewer_history),
+            },
+        }
+        
+        trajectories.append(trajectory)
+    
+    # 統計情報
+    positive_count = sum(1 for t in trajectories if t['future_contribution'])
+    positive_rate = positive_count / len(trajectories) if trajectories else 0
+    
+    logger.info("=" * 80)
+    logger.info(f"軌跡抽出完了: {len(trajectories)}サンプル")
+    logger.info(f"  継続率: {positive_rate:.1%} ({positive_count}/{len(trajectories)})")
+    logger.info("=" * 80)
+    
+    return trajectories
+
+
 def train_irl_model(
     trajectories: List[Dict[str, Any]],
     config: Dict[str, Any],
