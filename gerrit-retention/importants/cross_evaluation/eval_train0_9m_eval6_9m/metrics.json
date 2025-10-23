@@ -1,0 +1,10 @@
+{
+  "auc_roc": 0.3708052852572647,
+  "auc_pr": 0.46195887816585135,
+  "f1": 0.0,
+  "precision": 0.0,
+  "recall": 0.0,
+  "test_samples": 1839,
+  "positive_samples": 992,
+  "positive_rate": 0.5394235997824904
+}

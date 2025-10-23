@@ -262,14 +262,52 @@ def train_irl_model(
     return irl_system
 
 
+def find_optimal_threshold(y_true, y_pred_proba):
+    """
+    F1スコアを最大化する閾値を探索
+    """
+    thresholds = np.linspace(0.1, 0.9, 81)
+    best_f1 = 0
+    best_threshold = 0.5
+    best_metrics = None
+    
+    for threshold in thresholds:
+        y_pred_binary = [1 if p >= threshold else 0 for p in y_pred_proba]
+        
+        try:
+            f1 = f1_score(y_true, y_pred_binary, zero_division=0)
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = threshold
+                best_metrics = {
+                    'f1': f1,
+                    'precision': precision_score(y_true, y_pred_binary, zero_division=0),
+                    'recall': recall_score(y_true, y_pred_binary, zero_division=0),
+                }
+        except:
+            continue
+    
+    return best_threshold, best_metrics
+
+
 def evaluate_irl_model(
     irl_system: RetentionIRLSystem,
-    test_trajectories: List[Dict[str, Any]]
+    test_trajectories: List[Dict[str, Any]],
+    fixed_threshold: float = None
 ) -> Dict[str, float]:
-    """IRLモデルを評価"""
+    """
+    IRLモデルを評価
+    
+    Args:
+        irl_system: 評価するIRLシステム
+        test_trajectories: テスト軌跡
+        fixed_threshold: 固定閾値（Noneの場合は最適閾値を探索）
+    """
     logger.info("=" * 80)
     logger.info("IRLモデル評価開始")
     logger.info(f"テストサンプル数: {len(test_trajectories)}")
+    if fixed_threshold is not None:
+        logger.info(f"固定閾値: {fixed_threshold:.2f}")
     logger.info("=" * 80)
     
     y_true = []
@@ -289,8 +327,16 @@ def evaluate_irl_model(
         y_true.append(1 if true_label else 0)
         y_pred.append(prediction['continuation_probability'])
     
-    # 2値予測（閾値0.5）
-    y_pred_binary = [1 if p >= 0.5 else 0 for p in y_pred]
+    # 閾値を決定
+    if fixed_threshold is not None:
+        # 固定閾値を使用
+        threshold = fixed_threshold
+    else:
+        # 最適閾値を探索
+        threshold, _ = find_optimal_threshold(y_true, y_pred)
+    
+    # 閾値で2値予測
+    y_pred_binary = [1 if p >= threshold else 0 for p in y_pred]
     
     # メトリクス計算
     metrics = {}
@@ -306,14 +352,28 @@ def evaluate_irl_model(
     except:
         metrics['auc_pr'] = 0.0
     
+    # メトリクス計算
     try:
         metrics['f1'] = f1_score(y_true, y_pred_binary, zero_division=0)
         metrics['precision'] = precision_score(y_true, y_pred_binary, zero_division=0)
         metrics['recall'] = recall_score(y_true, y_pred_binary, zero_division=0)
+        metrics['optimal_threshold'] = threshold
     except:
         metrics['f1'] = 0.0
         metrics['precision'] = 0.0
         metrics['recall'] = 0.0
+        metrics['optimal_threshold'] = 0.5
+    
+    # 比較用に閾値0.5でも計算（固定閾値使用時のみ）
+    if fixed_threshold is not None:
+        y_pred_binary_05 = [1 if p >= 0.5 else 0 for p in y_pred]
+        metrics['f1_threshold_0.5'] = f1_score(y_true, y_pred_binary_05, zero_division=0)
+    else:
+        metrics['f1_threshold_0.5'] = metrics['f1']  # 最適閾値使用時は同じ
+    
+    # 予測確率の統計
+    metrics['pred_mean'] = float(np.mean(y_pred))
+    metrics['pred_std'] = float(np.std(y_pred))
     
     metrics['test_samples'] = len(test_trajectories)
     positive_count = sum(y_true)
@@ -323,7 +383,11 @@ def evaluate_irl_model(
     logger.info("評価結果:")
     logger.info(f"  AUC-ROC: {metrics['auc_roc']:.3f}")
     logger.info(f"  AUC-PR: {metrics['auc_pr']:.3f}")
+    logger.info(f"  予測確率: {metrics['pred_mean']:.3f} ± {metrics['pred_std']:.3f}")
+    logger.info(f"  使用閾値: {metrics['optimal_threshold']:.2f}")
     logger.info(f"  F1: {metrics['f1']:.3f}")
+    if fixed_threshold is not None:
+        logger.info(f"  F1（参考: 閾値0.5）: {metrics['f1_threshold_0.5']:.3f}")
     logger.info(f"  Precision: {metrics['precision']:.3f}")
     logger.info(f"  Recall: {metrics['recall']:.3f}")
     logger.info(f"  正例率: {metrics['positive_rate']:.1%}")

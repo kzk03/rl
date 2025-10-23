@@ -71,6 +71,7 @@ def build_project_last_activity(changes: List[Dict[str,Any]], project: str | Non
             max_dt = dt
     return last, max_dt
 
+             
 
 def main():
     args = parse_args()
