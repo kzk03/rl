@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """
-各タイムステップラベル付きIRL訓練スクリプト
+拡張特徴量を使用した各タイムステップラベル付きIRL訓練スクリプト
 
+拡張IRL版の特徴:
+- 状態特徴量: 32次元（通常IRLは10次元）
+- 行動特徴量: 9次元（通常IRLは5次元）
+- 高優先度特徴量を統合：
+  * A1: 活動頻度の多期間比較
+  * B1: レビュー負荷指標
+  * C1: 相互作用の深さ
+  * D1: 専門性の一致度
+  
 重要な設計:
 - 各タイムステップから将来の貢献をラベルとして計算
 - seq_len個のラベルを生成（各ステップで1つ）
@@ -12,6 +21,7 @@
 - 各時点での継続予測を学習
 - 時系列パターンをより詳細に学習
 - 予測精度の向上
+- 拡張特徴量による性能向上
 """
 from __future__ import annotations
 
@@ -54,7 +64,9 @@ from train_irl_within_training_period import (
     load_review_logs,
 )
 
-from gerrit_retention.rl_prediction.retention_irl_system import RetentionIRLSystem
+from gerrit_retention.rl_prediction.enhanced_retention_irl_system import (
+    EnhancedRetentionIRLSystem,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,9 +79,9 @@ def train_irl_model_multi_step(
     trajectories: List[Dict[str, Any]],
     config: Dict[str, Any],
     epochs: int = 30
-) -> RetentionIRLSystem:
+) -> EnhancedRetentionIRLSystem:
     """
-    各ステップラベル付きIRLモデルを訓練
+    拡張特徴量を使用した各ステップラベル付きIRLモデルを訓練
     
     Args:
         trajectories: 各ステップラベル付き軌跡データ
@@ -80,14 +92,15 @@ def train_irl_model_multi_step(
         訓練済みモデル
     """
     logger.info("=" * 80)
-    logger.info("IRL訓練開始")
+    logger.info("拡張IRL訓練開始")
+    logger.info(f"特徴量: 状態32次元、行動9次元")
     logger.info(f"軌跡数: {len(trajectories)}")
     logger.info(f"エポック数: {epochs}")
-    logger.info(f"目標: 各時点での継続予測を学習")
+    logger.info(f"目標: 各時点での継続予測を学習（拡張特徴量版）")
     logger.info("=" * 80)
     
     # IRLシステムの初期化
-    irl_system = RetentionIRLSystem(config)
+    irl_system = EnhancedRetentionIRLSystem(config)
     
     # 訓練
     result = irl_system.train_irl_multi_step_labels(
@@ -96,20 +109,20 @@ def train_irl_model_multi_step(
     )
     
     logger.info("=" * 80)
-    logger.info(f"訓練完了: 最終損失 = {result['final_loss']:.4f}")
+    logger.info(f"拡張IRL訓練完了: 最終損失 = {result['final_loss']:.4f}")
     logger.info("=" * 80)
     
     return irl_system
 
 
 def evaluate_model(
-    irl_system: RetentionIRLSystem,
+    irl_system: EnhancedRetentionIRLSystem,
     eval_trajectories: List[Dict[str, Any]],
     threshold: float = 0.5
 ) -> Dict[str, Any]:
-    """モデルを評価"""
+    """拡張IRLモデルを評価"""
     logger.info("=" * 80)
-    logger.info("モデル評価開始")
+    logger.info("拡張IRLモデル評価開始")
     logger.info(f"評価サンプル数: {len(eval_trajectories)}")
     logger.info(f"閾値: {threshold}")
     logger.info("=" * 80)
@@ -181,7 +194,7 @@ def evaluate_model(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='各ステップラベル付きIRL訓練')
+    parser = argparse.ArgumentParser(description='拡張特徴量を使用した各ステップラベル付きIRL訓練')
     parser.add_argument('--reviews', type=str, required=True, help='レビューログCSV')
     parser.add_argument('--train-start', type=str, required=True, help='学習開始日')
     parser.add_argument('--train-end', type=str, required=True, help='学習終了日')
@@ -210,17 +223,19 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info("=" * 80)
+    logger.info("🔬 拡張特徴量IRL訓練スクリプト")
     # 評価用の将来窓パラメータ（デフォルトは訓練時と同じ）
     eval_future_start = args.eval_future_window_start if args.eval_future_window_start is not None else args.future_window_start
     eval_future_end = args.eval_future_window_end if args.eval_future_window_end is not None else args.future_window_end
     
     if args.use_full_sequence:
-        logger.info("全シーケンス＋月次集約ラベルIRL訓練（サンプリングなし）")
+        logger.info("全シーケンス＋月次集約ラベル拡張IRL訓練（サンプリングなし）")
     elif args.use_monthly_labels:
-        logger.info("サンプリング時点ベースラベルIRL訓練")
+        logger.info("サンプリング時点ベースラベル拡張IRL訓練")
     else:
-        logger.info("各タイムステップラベル付きIRL訓練")
+        logger.info("各タイムステップラベル付き拡張IRL訓練")
     logger.info("=" * 80)
+    logger.info(f"特徴量: 状態32次元 / 行動9次元（通常IRLは10次元/5次元）")
     logger.info(f"レビューログ: {args.reviews}")
     logger.info(f"学習期間: {args.train_start} ～ {args.train_end}")
     logger.info(f"評価期間: {args.eval_start} ～ {args.eval_end}")
@@ -322,14 +337,15 @@ def main():
     
     logger.info(f"評価サンプル数: {len(eval_trajectories)}")
     
-    # モデル設定
+    # モデル設定（拡張IRL: state_dim=32, action_dim=9）
     config = {
-        'state_dim': 10,
-        'action_dim': 5,
-        'hidden_dim': 128,
+        'state_dim': 32,  # 拡張特徴量
+        'action_dim': 9,  # 拡張特徴量
+        'hidden_dim': 256,  # より大きなネットワーク
         'learning_rate': 0.0001,
         'sequence': True,
         'seq_len': args.seq_len,
+        'dropout': 0.2,
     }
     
     # モデル訓練
@@ -340,9 +356,9 @@ def main():
     )
     
     # モデルを保存
-    model_path = output_dir / 'irl_model.pt'
-    torch.save(irl_system.network.state_dict(), model_path)
-    logger.info(f"モデル保存: {model_path}")
+    model_path = output_dir / 'enhanced_irl_model.pt'
+    irl_system.save_model(str(model_path))
+    logger.info(f"拡張IRLモデル保存: {model_path}")
     
     # 評価
     if len(eval_trajectories) > 0:
@@ -373,7 +389,7 @@ def main():
         logger.info(f"評価軌跡保存: {eval_trajectories_path}")
     
     logger.info("\n" + "=" * 80)
-    logger.info("完了！")
+    logger.info("拡張IRL訓練完了！")
     logger.info("=" * 80)
 
 

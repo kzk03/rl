@@ -1,6 +1,16 @@
 #!/bin/bash
 # 同期コマンド
-rsync -avz --progress /Users/kazuki-h/rl/gerrit-retention/ socsel:/mnt/data1/kazuki-h
+# S → L
+rsync -avz --progress /Users/kazuki-h/rl/gerrit-retention/ socsel:/mnt/data1/kazuki-h/gerrit-retention/
+
+
+# L → S
+rsync socsel:/mnt/data1/kazuki-h/rl/gerrit-retention/ /Users/kazuki-h/rl/
+
+
+
+
+
 
 # ================================================================================
 # IRL 8×8行列評価メモ

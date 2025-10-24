@@ -16,9 +16,20 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, precision_score, recall_score, accuracy_score
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
-from .enhanced_feature_extractor import EnhancedFeatureExtractor, EnhancedDeveloperState, EnhancedDeveloperAction
+from .enhanced_feature_extractor import (
+    EnhancedDeveloperAction,
+    EnhancedDeveloperState,
+    EnhancedFeatureExtractor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -503,3 +514,257 @@ class EnhancedRetentionIRLSystem:
 
         logger.info(f"拡張IRLモデルを読み込み: {filepath}")
         return system
+
+    def train_irl_multi_step_labels(self,
+                                    expert_trajectories: List[Dict[str, Any]],
+                                    epochs: int = 50) -> Dict[str, Any]:
+        """
+        各タイムステップラベル付きIRLモデルを訓練（拡張特徴量版）
+        
+        Args:
+            expert_trajectories: エキスパート軌跡データ（各軌跡に step_labels を含む）
+            epochs: 訓練エポック数
+            
+        Returns:
+            Dict[str, Any]: 訓練結果
+        """
+        logger.info(f"各タイムステップラベル付き拡張IRL訓練開始: {len(expert_trajectories)}軌跡, {epochs}エポック")
+        
+        training_losses = []
+        
+        # 正例と負例をカウント
+        total_steps = sum(t.get('seq_len', len(t.get('step_labels', []))) for t in expert_trajectories)
+        positive_steps = sum(sum(1 for label in t.get('step_labels', []) if label) for t in expert_trajectories)
+        positive_rate = positive_steps / total_steps if total_steps > 0 else 0.5
+        
+        # クラスバランスを考慮
+        positive_rate = max(0.01, min(0.99, positive_rate))  # 0や1にならないようクリップ
+        neg_weight = positive_rate / (1 - positive_rate)
+        
+        logger.info(f"総ステップ数: {total_steps}, 継続ステップ: {positive_steps} ({positive_rate:.1%})")
+        logger.info(f"負例の重み: {neg_weight:.2f}")
+        
+        # Scalerのfitting（初回のみ）
+        if not self.feature_extractor.scaler_fitted:
+            logger.info("特徴量のスケーラーをフィット中...")
+            all_states = []
+            all_actions = []
+            
+            for trajectory in expert_trajectories:
+                developer = trajectory.get('developer', trajectory.get('developer_info', {}))
+                activity_history = trajectory['activity_history']
+                context_date = trajectory.get('context_date', datetime.now())
+                
+                state = self.feature_extractor.extract_enhanced_state(developer, activity_history, context_date)
+                all_states.append(self.feature_extractor.state_to_array(state))
+                
+                for activity in activity_history:
+                    action = self.feature_extractor.extract_enhanced_action(activity, context_date)
+                    all_actions.append(self.feature_extractor.action_to_array(action))
+            
+            self.feature_extractor.fit_scalers(all_states, all_actions)
+        
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            batch_count = 0
+            
+            for trajectory in expert_trajectories:
+                try:
+                    # 軌跡から状態と行動を抽出
+                    developer = trajectory.get('developer', trajectory.get('developer_info', {}))
+                    activity_history = trajectory['activity_history']
+                    step_labels = trajectory.get('step_labels', [])
+                    context_date = trajectory.get('context_date', datetime.now())
+                    seq_len_actual = trajectory.get('seq_len', len(step_labels))
+                    
+                    if not step_labels or not activity_history:
+                        continue
+                    
+                    # 各ステップごとに状態を動的に構築
+                    state_sequence = []
+                    action_sequence = []
+                    
+                    for step_idx in range(len(activity_history)):
+                        # このステップまでの履歴で状態を抽出
+                        history_up_to_step = activity_history[:step_idx+1]
+                        step_state = self.feature_extractor.extract_enhanced_state(
+                            developer, history_up_to_step, context_date
+                        )
+                        step_action = self.feature_extractor.extract_enhanced_action(
+                            activity_history[step_idx], context_date
+                        )
+                        
+                        # 配列化 + 正規化
+                        state_array = self.feature_extractor.state_to_array(step_state)
+                        action_array = self.feature_extractor.action_to_array(step_action)
+                        
+                        state_array_norm = self.feature_extractor.normalize_state(state_array)
+                        action_array_norm = self.feature_extractor.normalize_action(action_array)
+                        
+                        state_sequence.append(state_array_norm)
+                        action_sequence.append(action_array_norm)
+                    
+                    # テンソル化
+                    state_tensor = torch.tensor(
+                        np.array(state_sequence), dtype=torch.float32, device=self.device
+                    ).unsqueeze(0)  # [1, seq_len, state_dim]
+                    action_tensor = torch.tensor(
+                        np.array(action_sequence), dtype=torch.float32, device=self.device
+                    ).unsqueeze(0)  # [1, seq_len, action_dim]
+                    
+                    # 各ステップで予測（LSTMを使用）
+                    batch_size, seq_len, _ = state_tensor.shape
+                    
+                    # Encode
+                    state_flat = state_tensor.view(-1, state_tensor.shape[-1])
+                    action_flat = action_tensor.view(-1, action_tensor.shape[-1])
+                    
+                    state_encoded = self.network.state_encoder(state_flat).view(batch_size, seq_len, -1)
+                    action_encoded = self.network.action_encoder(action_flat).view(batch_size, seq_len, -1)
+                    
+                    # Combine
+                    combined = state_encoded + action_encoded
+                    
+                    # LSTM
+                    lstm_out, _ = self.network.lstm(combined)
+                    
+                    # 各ステップで継続予測
+                    lstm_out_flat = lstm_out.view(-1, lstm_out.shape[-1])
+                    predictions_flat = self.network.continuation_predictor(lstm_out_flat).squeeze(-1)
+                    predictions = predictions_flat.view(batch_size, seq_len)
+                    
+                    # ラベル
+                    targets = torch.tensor(
+                        [[1.0 if label else 0.0 for label in step_labels]],
+                        dtype=torch.float32,
+                        device=self.device
+                    )
+                    
+                    # 重み付き損失
+                    weights = torch.ones_like(targets)
+                    for i, label in enumerate(step_labels):
+                        if not label:
+                            weights[0, i] = neg_weight
+                    
+                    loss_per_step = nn.functional.binary_cross_entropy(
+                        predictions[:, :seq_len_actual],
+                        targets[:, :seq_len_actual],
+                        weight=weights[:, :seq_len_actual],
+                        reduction='mean'
+                    )
+                    
+                    # 最適化
+                    self.optimizer.zero_grad()
+                    loss_per_step.backward()
+                    torch.nn.utils.clip_grad_norm_(self.network.parameters(), max_norm=1.0)
+                    self.optimizer.step()
+                    
+                    epoch_loss += loss_per_step.item()
+                    batch_count += 1
+                
+                except Exception as e:
+                    logger.warning(f"軌跡処理エラー: {e}")
+                    import traceback
+                    logger.warning(traceback.format_exc())
+                    continue
+            
+            avg_loss = epoch_loss / max(batch_count, 1)
+            training_losses.append(avg_loss)
+            
+            if epoch % 10 == 0:
+                current_lr = self.optimizer.param_groups[0]['lr']
+                logger.info(f"エポック {epoch}: 平均損失 = {avg_loss:.4f}, LR = {current_lr:.6f}")
+        
+        logger.info("拡張IRL訓練完了")
+        
+        result = {
+            'training_losses': training_losses,
+            'final_loss': training_losses[-1] if training_losses else 0.0,
+            'epochs_trained': epochs
+        }
+        
+        return result
+    
+    def predict_continuation_probability(self, developer: Dict[str, Any], 
+                                        activity_history: List[Dict[str, Any]], 
+                                        context_date: datetime) -> Dict[str, Any]:
+        """継続確率を予測（拡張特徴量版）"""
+        
+        self.network.eval()
+        
+        with torch.no_grad():
+            # 状態と行動を抽出
+            state = self.feature_extractor.extract_enhanced_state(
+                developer, activity_history, context_date
+            )
+            actions = [self.feature_extractor.extract_enhanced_action(act, context_date)
+                      for act in activity_history]
+            
+            if not actions:
+                return {
+                    'continuation_probability': 0.5,
+                    'predicted_reward': 0.0,
+                    'reasoning': 'No actions available'
+                }
+            
+            if self.sequence:
+                # 可変長対応
+                recent_actions = actions
+                
+                # 状態シーケンス（各ステップで履歴が増える）
+                state_sequence = []
+                action_sequence = []
+                
+                for step_idx in range(len(actions)):
+                    history_up_to_step = activity_history[:step_idx+1]
+                    step_state = self.feature_extractor.extract_enhanced_state(
+                        developer, history_up_to_step, context_date
+                    )
+                    
+                    state_array = self.feature_extractor.state_to_array(step_state)
+                    action_array = self.feature_extractor.action_to_array(actions[step_idx])
+                    
+                    state_array_norm = self.feature_extractor.normalize_state(state_array)
+                    action_array_norm = self.feature_extractor.normalize_action(action_array)
+                    
+                    state_sequence.append(state_array_norm)
+                    action_sequence.append(action_array_norm)
+                
+                state_tensor = torch.tensor(
+                    np.array(state_sequence), dtype=torch.float32, device=self.device
+                ).unsqueeze(0)
+                action_tensor = torch.tensor(
+                    np.array(action_sequence), dtype=torch.float32, device=self.device
+                ).unsqueeze(0)
+                
+                predicted_reward, predicted_continuation = self.network(
+                    state_tensor, action_tensor
+                )
+            else:
+                # 単一ステップ
+                recent_action = actions[-1]
+                
+                state_array = self.feature_extractor.state_to_array(state)
+                action_array = self.feature_extractor.action_to_array(recent_action)
+                
+                state_array_norm = self.feature_extractor.normalize_state(state_array)
+                action_array_norm = self.feature_extractor.normalize_action(action_array)
+                
+                state_tensor = torch.tensor(
+                    state_array_norm, dtype=torch.float32, device=self.device
+                ).unsqueeze(0)
+                action_tensor = torch.tensor(
+                    action_array_norm, dtype=torch.float32, device=self.device
+                ).unsqueeze(0)
+                
+                predicted_reward, predicted_continuation = self.network(
+                    state_tensor, action_tensor
+                )
+        
+        self.network.train()
+        
+        return {
+            'continuation_probability': predicted_continuation.item(),
+            'predicted_reward': predicted_reward.item(),
+            'reasoning': f'Based on {len(actions)} actions'
+        }
