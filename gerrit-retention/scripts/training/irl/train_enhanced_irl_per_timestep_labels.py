@@ -214,7 +214,10 @@ def main():
                         help='評価時の将来窓開始（ヶ月、デフォルト=future-window-start）')
     parser.add_argument('--eval-future-window-end', type=int, default=None, 
                         help='評価時の将来窓終了（ヶ月、デフォルト=future-window-end）')
+    parser.add_argument('--model', type=str, default=None, help='既存モデルのパス（評価のみの場合）')
     parser.add_argument('--output', type=str, required=True, help='出力ディレクトリ')
+    parser.add_argument('--min-history-events', type=int, default=3,
+                        help='最小活動回数（デフォルト: 3）')
     
     args = parser.parse_args()
     
@@ -288,7 +291,7 @@ def main():
             train_end=train_end,
             future_window_start_months=args.future_window_start,
             future_window_end_months=args.future_window_end,
-            min_history_events=3,
+            min_history_events=args.min_history_events,
         )
     elif args.use_monthly_labels:
         train_trajectories = extract_monthly_aggregated_label_trajectories(
@@ -300,7 +303,7 @@ def main():
             future_window_end_months=args.future_window_end,
             sampling_interval_months=1,
             seq_len=seq_len_val,
-            min_history_events=3,
+            min_history_events=args.min_history_events,
         )
     else:
         train_trajectories = extract_multi_step_label_trajectories(
@@ -312,7 +315,7 @@ def main():
             future_window_end_months=args.future_window_end,
             sampling_interval_months=1,
             seq_len=seq_len_val,
-            min_history_events=3,
+            min_history_events=args.min_history_events,
         )
     
     logger.info(f"訓練サンプル数: {len(train_trajectories)}")
@@ -348,17 +351,28 @@ def main():
         'dropout': 0.2,
     }
     
-    # モデル訓練
-    irl_system = train_irl_model_multi_step(
-        train_trajectories,
-        config,
-        epochs=args.epochs
-    )
-    
-    # モデルを保存
-    model_path = output_dir / 'enhanced_irl_model.pt'
-    irl_system.save_model(str(model_path))
-    logger.info(f"拡張IRLモデル保存: {model_path}")
+    # モデルの訓練またはロード
+    if args.model and Path(args.model).exists():
+        # 既存モデルをロード
+        logger.info(f"既存モデルをロード: {args.model}")
+        from gerrit_retention.rl_prediction.enhanced_retention_irl_system import (
+            EnhancedRetentionIRLSystem,
+        )
+        irl_system = EnhancedRetentionIRLSystem(config)
+        irl_system.load_model(args.model)
+        model_path = Path(args.model)
+    else:
+        # モデル訓練
+        irl_system = train_irl_model_multi_step(
+            train_trajectories,
+            config,
+            epochs=args.epochs
+        )
+        
+        # モデルを保存
+        model_path = output_dir / 'enhanced_irl_model.pt'
+        irl_system.save_model(str(model_path))
+        logger.info(f"拡張IRLモデル保存: {model_path}")
     
     # 評価
     if len(eval_trajectories) > 0:

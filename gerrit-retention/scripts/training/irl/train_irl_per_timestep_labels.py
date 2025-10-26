@@ -202,6 +202,8 @@ def main():
     parser.add_argument('--eval-future-window-end', type=int, default=None, 
                         help='評価時の将来窓終了（ヶ月、デフォルト=future-window-end）')
     parser.add_argument('--output', type=str, required=True, help='出力ディレクトリ')
+    parser.add_argument('--min-history-events', type=int, default=3,
+                        help='最小活動回数（デフォルト: 3）')
     
     args = parser.parse_args()
     
@@ -273,7 +275,7 @@ def main():
             train_end=train_end,
             future_window_start_months=args.future_window_start,
             future_window_end_months=args.future_window_end,
-            min_history_events=3,
+            min_history_events=args.min_history_events,
         )
     elif args.use_monthly_labels:
         train_trajectories = extract_monthly_aggregated_label_trajectories(
@@ -285,7 +287,7 @@ def main():
             future_window_end_months=args.future_window_end,
             sampling_interval_months=1,
             seq_len=seq_len_val,
-            min_history_events=3,
+            min_history_events=args.min_history_events,
         )
     else:
         train_trajectories = extract_multi_step_label_trajectories(
@@ -297,7 +299,7 @@ def main():
             future_window_end_months=args.future_window_end,
             sampling_interval_months=1,
             seq_len=seq_len_val,
-            min_history_events=3,
+            min_history_events=args.min_history_events,
         )
     
     logger.info(f"訓練サンプル数: {len(train_trajectories)}")

@@ -1,10 +1,10 @@
 #!/bin/bash
 # 同期コマンド
-# S → L
+# Local → Server
 rsync -avz --progress /Users/kazuki-h/rl/gerrit-retention/ socsel:/mnt/data1/kazuki-h/gerrit-retention/
 
 
-# L → S
+# Server → Local
 rsync socsel:/mnt/data1/kazuki-h/rl/gerrit-retention/ /Users/kazuki-h/rl/
 
 
