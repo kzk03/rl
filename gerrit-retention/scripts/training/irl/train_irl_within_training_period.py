@@ -241,7 +241,8 @@ def extract_full_sequence_monthly_label_trajectories(
     future_window_end_months: int = 3,
     min_history_events: int = 3,
     reviewer_col: str = 'reviewer_email',
-    date_col: str = 'request_time'
+    date_col: str = 'request_time',
+    project: str = None
 ) -> List[Dict[str, Any]]:
     """
     全シーケンス＋月次集約ラベル付き軌跡を抽出（サンプリングなし）
@@ -262,6 +263,7 @@ def extract_full_sequence_monthly_label_trajectories(
         min_history_events: 最小活動数
         reviewer_col: レビュアー列名
         date_col: 日付列名
+        project: プロジェクト名（指定時は単一プロジェクトのみ）
     
     Returns:
         各レビュアーの軌跡のリスト（1レビュアー=1サンプル）
@@ -270,11 +272,20 @@ def extract_full_sequence_monthly_label_trajectories(
     logger.info("全シーケンス＋月次集約ラベル付き軌跡抽出を開始（サンプリングなし）")
     logger.info(f"学習期間: {train_start} ～ {train_end}")
     logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    if project:
+        logger.info(f"プロジェクト: {project} (単一プロジェクト)")
+    else:
+        logger.info("プロジェクト: 全プロジェクト")
     logger.info("全シーケンス: 各レビュアーの学習期間内の全活動を使用")
     logger.info("ラベル: 月次集約（各月末から将来窓内に活動があるか）")
     logger.info("=" * 80)
     
     trajectories = []
+    
+    # プロジェクトフィルタを適用
+    if project and 'project' in df.columns:
+        df = df[df['project'] == project].copy()
+        logger.info(f"プロジェクトフィルタ適用後: {len(df)}件")
     
     # 学習期間内のデータを取得
     train_df = df[(df[date_col] >= train_start) & (df[date_col] < train_end)]
@@ -397,7 +408,8 @@ def extract_monthly_aggregated_label_trajectories(
     seq_len: int = None,  # None = 可変長（全活動を使用）
     min_history_events: int = 3,
     reviewer_col: str = 'reviewer_email',
-    date_col: str = 'request_time'
+    date_col: str = 'request_time',
+    project: str = None
 ) -> List[Dict[str, Any]]:
     """
     サンプリング時点ベースのラベル付き軌跡を抽出
@@ -420,6 +432,7 @@ def extract_monthly_aggregated_label_trajectories(
         min_history_events: 最小活動数
         reviewer_col: レビュアー列名
         date_col: 日付列名
+        project: プロジェクト名（指定時は単一プロジェクトのみ）
     
     Returns:
         各サンプルの軌跡のリスト
@@ -429,6 +442,10 @@ def extract_monthly_aggregated_label_trajectories(
     logger.info(f"学習期間: {train_start} ～ {train_end}")
     logger.info(f"履歴ウィンドウ: {history_window_months}ヶ月")
     logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    if project:
+        logger.info(f"プロジェクト: {project} (単一プロジェクト)")
+    else:
+        logger.info("プロジェクト: 全プロジェクト")
     if seq_len is None:
         logger.info("seq_len: 可変長（全活動を使用）")
     else:
@@ -436,6 +453,11 @@ def extract_monthly_aggregated_label_trajectories(
     logger.info("ラベル: サンプリング時点ベース（各サンプリング時点から将来窓内に活動があるか）")
     logger.info("学習: 各活動単位、全ステップで同じラベル（時系列学習は保持）")
     logger.info("=" * 80)
+    
+    # プロジェクトフィルタを適用
+    if project and 'project' in df.columns:
+        df = df[df['project'] == project].copy()
+        logger.info(f"プロジェクトフィルタ適用後: {len(df)}件")
     
     trajectories = []
     
@@ -563,7 +585,8 @@ def extract_multi_step_label_trajectories(
     seq_len: int = None,  # None = 可変長（全活動を使用）
     min_history_events: int = 3,
     reviewer_col: str = 'reviewer_email',
-    date_col: str = 'request_time'
+    date_col: str = 'request_time',
+    project: str = None
 ) -> List[Dict[str, Any]]:
     """
     各タイムステップラベル付き軌跡を抽出
@@ -585,6 +608,7 @@ def extract_multi_step_label_trajectories(
         min_history_events: 最小イベント数
         reviewer_col: レビュアーカラム名
         date_col: 日付カラム名
+        project: プロジェクト名（指定時は単一プロジェクトのみ）
     
     Returns:
         軌跡リスト（各軌跡に seq_len 個のラベルを含む）
@@ -594,11 +618,20 @@ def extract_multi_step_label_trajectories(
     logger.info(f"学習期間: {train_start} ～ {train_end}")
     logger.info(f"履歴ウィンドウ: {history_window_months}ヶ月")
     logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    if project:
+        logger.info(f"プロジェクト: {project} (単一プロジェクト)")
+    else:
+        logger.info("プロジェクト: 全プロジェクト")
     if seq_len is None:
         logger.info("seq_len: 可変長（全活動を使用）")
     else:
         logger.info(f"seq_len: {seq_len}（最新{seq_len}個の活動を使用）")
     logger.info("=" * 80)
+    
+    # プロジェクトフィルタを適用
+    if project and 'project' in df.columns:
+        df = df[df['project'] == project].copy()
+        logger.info(f"プロジェクトフィルタ適用後: {len(df)}件")
     
     trajectories = []
     
@@ -774,7 +807,8 @@ def extract_cutoff_evaluation_trajectories(
     future_window_end_months: int = 3,
     min_history_events: int = 3,
     reviewer_col: str = 'reviewer_email',
-    date_col: str = 'request_time'
+    date_col: str = 'request_time',
+    project: str = None
 ) -> List[Dict[str, Any]]:
     """
     Cutoff時点での評価用軌跡を抽出（ロングコントリビュータ予測スタイル）
@@ -793,6 +827,7 @@ def extract_cutoff_evaluation_trajectories(
         min_history_events: 最小イベント数
         reviewer_col: レビュアーカラム名
         date_col: 日付カラム名
+        project: プロジェクト名（指定時は単一プロジェクトのみ）
     
     Returns:
         軌跡リスト
@@ -802,7 +837,16 @@ def extract_cutoff_evaluation_trajectories(
     logger.info(f"Cutoff日: {cutoff_date}")
     logger.info(f"履歴ウィンドウ: {history_window_months}ヶ月")
     logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    if project:
+        logger.info(f"プロジェクト: {project} (単一プロジェクト)")
+    else:
+        logger.info("プロジェクト: 全プロジェクト")
     logger.info("=" * 80)
+    
+    # プロジェクトフィルタを適用
+    if project and 'project' in df.columns:
+        df = df[df['project'] == project].copy()
+        logger.info(f"プロジェクトフィルタ適用後: {len(df)}件")
     
     trajectories = []
     

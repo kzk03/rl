@@ -955,16 +955,34 @@ class RetentionIRLSystem:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         checkpoint = torch.load(filepath, map_location=device)
         
-        config = checkpoint.get('config', {
-            'state_dim': 20,
-            'action_dim': 3,
-            'hidden_dim': 128,
-            'learning_rate': 0.001
-        })
-        
-        instance = cls(config)
-        instance.network.load_state_dict(checkpoint['model_state_dict'])
-        instance.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # checkpointがstate_dict直接かdictかを判定
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            # 古い形式（dictに'model_state_dict'キーがある）
+            config = checkpoint.get('config', {
+                'state_dim': 20,
+                'action_dim': 3,
+                'hidden_dim': 128,
+                'learning_rate': 0.001
+            })
+            
+            instance = cls(config)
+            instance.network.load_state_dict(checkpoint['model_state_dict'])
+            if 'optimizer_state_dict' in checkpoint:
+                instance.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        else:
+            # 新しい形式（state_dict直接保存）
+            # デフォルトconfigで初期化
+            config = {
+                'state_dim': 10,
+                'action_dim': 5,
+                'hidden_dim': 128,
+                'learning_rate': 0.0001,
+                'sequence': True,
+                'seq_len': 0,
+            }
+            
+            instance = cls(config)
+            instance.network.load_state_dict(checkpoint)
         
         logger.info(f"IRLモデルを読み込みました: {filepath}")
         return instance

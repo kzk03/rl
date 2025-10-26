@@ -204,6 +204,10 @@ def main():
     parser.add_argument('--output', type=str, required=True, help='出力ディレクトリ')
     parser.add_argument('--min-history-events', type=int, default=3,
                         help='最小活動回数（デフォルト: 3）')
+    parser.add_argument('--project', type=str, default=None,
+                        help='プロジェクト名（指定時は単一プロジェクトのみ、例: openstack/nova）')
+    parser.add_argument('--model', type=str, default=None,
+                        help='既存モデルのパス（評価のみの場合）')
     
     args = parser.parse_args()
     
@@ -276,6 +280,7 @@ def main():
             future_window_start_months=args.future_window_start,
             future_window_end_months=args.future_window_end,
             min_history_events=args.min_history_events,
+            project=args.project,
         )
     elif args.use_monthly_labels:
         train_trajectories = extract_monthly_aggregated_label_trajectories(
@@ -288,6 +293,7 @@ def main():
             sampling_interval_months=1,
             seq_len=seq_len_val,
             min_history_events=args.min_history_events,
+            project=args.project,
         )
     else:
         train_trajectories = extract_multi_step_label_trajectories(
@@ -300,6 +306,7 @@ def main():
             sampling_interval_months=1,
             seq_len=seq_len_val,
             min_history_events=args.min_history_events,
+            project=args.project,
         )
     
     logger.info(f"訓練サンプル数: {len(train_trajectories)}")
@@ -320,6 +327,7 @@ def main():
         future_window_start_months=eval_future_start,
         future_window_end_months=eval_future_end,
         min_history_events=3,
+        project=args.project,
     )
     
     logger.info(f"評価サンプル数: {len(eval_trajectories)}")
@@ -334,17 +342,25 @@ def main():
         'seq_len': args.seq_len,
     }
     
-    # モデル訓練
-    irl_system = train_irl_model_multi_step(
-        train_trajectories,
-        config,
-        epochs=args.epochs
-    )
-    
-    # モデルを保存
-    model_path = output_dir / 'irl_model.pt'
-    torch.save(irl_system.network.state_dict(), model_path)
-    logger.info(f"モデル保存: {model_path}")
+    # モデルのロードまたは訓練
+    if args.model and Path(args.model).exists():
+        # 既存モデルをロード
+        logger.info(f"既存モデルをロード: {args.model}")
+        irl_system = RetentionIRLSystem(config)
+        irl_system.load_model(args.model)
+        model_path = Path(args.model)
+    else:
+        # モデル訓練
+        irl_system = train_irl_model_multi_step(
+            train_trajectories,
+            config,
+            epochs=args.epochs
+        )
+        
+        # モデルを保存
+        model_path = output_dir / 'irl_model.pt'
+        torch.save(irl_system.network.state_dict(), model_path)
+        logger.info(f"モデル保存: {model_path}")
     
     # 評価
     if len(eval_trajectories) > 0:
