@@ -176,8 +176,14 @@ def extract_temporal_trajectories_within_training_period(
                 }
                 activity_history.append(activity)
             
-            # 将来の貢献を計算（ラベルとして使用）
-            reviewer_future = future_df[future_df[reviewer_col] == reviewer]
+            # 履歴期間内で活動しているプロジェクトを取得
+            history_projects = set(reviewer_history['project'].dropna().unique())
+            
+            # 将来の貢献を計算（ラベルとして使用、履歴期間内のプロジェクトのみ）
+            reviewer_future = future_df[
+                (future_df[reviewer_col] == reviewer) &
+                (future_df['project'].isin(history_projects))
+            ]
             future_contribution = len(reviewer_future) > 0
             
             # 開発者情報
@@ -278,6 +284,7 @@ def extract_full_sequence_monthly_label_trajectories(
         logger.info("プロジェクト: 全プロジェクト")
     logger.info("全シーケンス: 各レビュアーの学習期間内の全活動を使用")
     logger.info("ラベル: 月次集約（各月末から将来窓内に活動があるか）")
+    logger.info("継続判定: 履歴期間内のプロジェクトでの継続のみをカウント")
     logger.info("=" * 80)
     
     trajectories = []
@@ -314,6 +321,9 @@ def extract_full_sequence_monthly_label_trajectories(
         # このレビュアーの全活動（学習期間外も含む）を時系列順に取得
         reviewer_all_activities = df[df[reviewer_col] == reviewer].sort_values(date_col)
         
+        # 履歴期間内で活動しているプロジェクトを取得
+        history_projects = set(reviewer_history_sorted['project'].dropna().unique())
+        
         # 月ごとにラベルを計算
         monthly_labels = {}
         
@@ -333,10 +343,11 @@ def extract_full_sequence_monthly_label_trajectories(
                 if future_end > train_end:
                     monthly_labels[month_key] = None
                 else:
-                    # この月から将来窓内に活動があるか
+                    # この月から将来窓内に活動があるか（履歴期間内のプロジェクトのみ）
                     future_activities = reviewer_all_activities[
                         (reviewer_all_activities[date_col] >= future_start) &
-                        (reviewer_all_activities[date_col] < future_end)
+                        (reviewer_all_activities[date_col] < future_end) &
+                        (reviewer_all_activities['project'].isin(history_projects))
                     ]
                     monthly_labels[month_key] = len(future_activities) > 0
         
@@ -452,6 +463,7 @@ def extract_monthly_aggregated_label_trajectories(
         logger.info(f"seq_len: {seq_len}（最新{seq_len}個の活動を使用）")
     logger.info("ラベル: サンプリング時点ベース（各サンプリング時点から将来窓内に活動があるか）")
     logger.info("学習: 各活動単位、全ステップで同じラベル（時系列学習は保持）")
+    logger.info("継続判定: 履歴期間内のプロジェクトでの継続のみをカウント")
     logger.info("=" * 80)
     
     # プロジェクトフィルタを適用
@@ -517,11 +529,15 @@ def extract_monthly_aggregated_label_trajectories(
             future_start = sampling_point + pd.DateOffset(months=future_window_start_months)
             future_end = sampling_point + pd.DateOffset(months=future_window_end_months)
             
-            # このレビュアーの将来窓内の活動を確認
+            # 履歴期間内で活動しているプロジェクトを取得
+            history_projects = set(reviewer_history_sorted['project'].dropna().unique())
+            
+            # このレビュアーの将来窓内の活動を確認（履歴期間内のプロジェクトのみ）
             reviewer_all_activities = df[df[reviewer_col] == reviewer]
             future_activities = reviewer_all_activities[
                 (reviewer_all_activities[date_col] >= future_start) &
-                (reviewer_all_activities[date_col] < future_end)
+                (reviewer_all_activities[date_col] < future_end) &
+                (reviewer_all_activities['project'].isin(history_projects))
             ]
             
             # サンプリング時点からの継続ラベル（レビュアー単位で1個）
@@ -626,6 +642,7 @@ def extract_multi_step_label_trajectories(
         logger.info("seq_len: 可変長（全活動を使用）")
     else:
         logger.info(f"seq_len: {seq_len}（最新{seq_len}個の活動を使用）")
+    logger.info("継続判定: 履歴期間内のプロジェクトでの継続のみをカウント")
     logger.info("=" * 80)
     
     # プロジェクトフィルタを適用
@@ -703,13 +720,21 @@ def extract_multi_step_label_trajectories(
             # 各ステップ（活動）から次の貢献までの期間を計算
             # このレビュアーの全活動を時系列順に取得
             reviewer_all_activities = df[df[reviewer_col] == reviewer].sort_values(date_col)
-            reviewer_timestamps = reviewer_all_activities[date_col].values
+            
+            # 履歴期間内で活動しているプロジェクトを取得
+            history_projects = set(reviewer_history_sorted['project'].dropna().unique())
+            
+            # 履歴期間内のプロジェクトでの活動のみを対象
+            reviewer_all_activities_filtered = reviewer_all_activities[
+                reviewer_all_activities['project'].isin(history_projects)
+            ]
+            reviewer_timestamps = reviewer_all_activities_filtered[date_col].values
             
             step_labels = []
             valid_indices = []
             
             for idx, step_date in enumerate(step_dates):
-                # このステップより後の活動を取得
+                # このステップより後の活動を取得（履歴期間内のプロジェクトのみ）
                 future_activities = [ts for ts in reviewer_timestamps if pd.Timestamp(ts) > step_date]
                 
                 if len(future_activities) == 0:
@@ -841,6 +866,7 @@ def extract_cutoff_evaluation_trajectories(
         logger.info(f"プロジェクト: {project} (単一プロジェクト)")
     else:
         logger.info("プロジェクト: 全プロジェクト")
+    logger.info("継続判定: 履歴期間内のプロジェクトでの継続のみをカウント")
     logger.info("=" * 80)
     
     # プロジェクトフィルタを適用
@@ -895,8 +921,14 @@ def extract_cutoff_evaluation_trajectories(
             }
             activity_history.append(activity)
         
-        # 将来の貢献を計算
-        reviewer_future = future_df[future_df[reviewer_col] == reviewer]
+        # 履歴期間内で活動しているプロジェクトを取得
+        history_projects = set(reviewer_history['project'].dropna().unique())
+        
+        # 将来の貢献を計算（履歴期間内のプロジェクトのみ）
+        reviewer_future = future_df[
+            (future_df[reviewer_col] == reviewer) &
+            (future_df['project'].isin(history_projects))
+        ]
         future_contribution = len(reviewer_future) > 0
         
         # 開発者情報
