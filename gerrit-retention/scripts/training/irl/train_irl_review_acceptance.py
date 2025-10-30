@@ -30,7 +30,7 @@ import pandas as pd
 import torch
 
 # ランダムシード固定
-RANDOM_SEED = 777
+RANDOM_SEED = 888
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
@@ -91,23 +91,25 @@ def extract_review_acceptance_trajectories(
     reviewer_col: str = 'reviewer_email',
     date_col: str = 'request_time',
     label_col: str = 'label',
-    project: str = None
+    project: str = None,
+    extended_label_window_months: int = 12
 ) -> List[Dict[str, Any]]:
     """
     レビュー承諾予測用の軌跡を抽出（データリークなし版）
-    
+
     重要：訓練期間内で完結させるため、訓練期間を以下のように分割：
     - **特徴量計算期間**: train_start ～ (train_end - future_window_end_months)
     - **ラベル計算期間**: 特徴量計算期間終了後 ～ train_end
-    
+
     これにより、訓練期間（train_end）を超えるデータを参照せずにラベル付けが可能。
-    
+
     特徴：
     - **訓練**：特徴量計算期間内にレビュー依頼を受けた開発者のみを対象
     - **正例**：ラベル計算期間内に少なくとも1つのレビュー依頼を承諾した
     - **負例**：ラベル計算期間内にレビュー依頼を受けたが、全て拒否した
-    - **除外**：ラベル計算期間内にレビュー依頼を受けていない開発者
-    
+    - **負例（拡張）**：ラベル計算期間に依頼なし（この期間では活動なし）、拡張期間に依頼あり
+    - **除外**：拡張期間内にもレビュー依頼を受けていない開発者（本当に離脱）
+
     Args:
         df: レビュー依頼データ
         train_start: 学習開始日
@@ -119,7 +121,8 @@ def extract_review_acceptance_trajectories(
         date_col: 日付列名
         label_col: ラベル列名（1=承諾, 0=拒否）
         project: プロジェクト名（指定時は単一プロジェクトのみ）
-    
+        extended_label_window_months: 拡張ラベル期間（月数、デフォルト12）
+
     Returns:
         各レビュアーの軌跡のリスト（1レビュアー=1サンプル）
     """
@@ -127,11 +130,12 @@ def extract_review_acceptance_trajectories(
     logger.info("レビュー承諾予測用軌跡抽出を開始（データリークなし版）")
     logger.info(f"訓練期間全体: {train_start} ～ {train_end}")
     logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    logger.info(f"拡張ラベル期間: {future_window_start_months}～{extended_label_window_months}ヶ月")
     if project:
         logger.info(f"プロジェクト: {project} (単一プロジェクト)")
     else:
         logger.info("プロジェクト: 全プロジェクト")
-    logger.info("ラベル定義: 依頼あり→承諾=1/拒否=0、依頼なし→除外")
+    logger.info("ラベル定義: この期間で承諾=1、この期間で拒否または依頼なし=0、拡張期間にも依頼なし→除外")
     logger.info("データリーク防止: 訓練期間内でラベル計算")
     logger.info("=" * 80)
     
@@ -165,15 +169,28 @@ def extract_review_acceptance_trajectories(
         (df[date_col] >= label_start) &
         (df[date_col] < label_end)
     ]
-    
+
+    # 拡張ラベル計算期間のレビュー依頼データ
+    extended_label_start = train_end + pd.DateOffset(months=future_window_start_months)
+    extended_label_end = train_end + pd.DateOffset(months=extended_label_window_months)
+    extended_label_df = df[
+        (df[date_col] >= extended_label_start) &
+        (df[date_col] < extended_label_end)
+    ]
+
     # 特徴量計算期間内にレビュー依頼を受けたレビュアーを対象
     active_reviewers = history_df[reviewer_col].unique()
     logger.info(f"特徴量計算期間内のレビュアー数: {len(active_reviewers)}")
-    
+
     skipped_min_requests = 0
     skipped_no_label_requests = 0
+    skipped_no_extended_requests = 0
+    rescued_by_extended = 0
     positive_count = 0
     negative_count = 0
+    negative_extended_count = 0
+    negative_with_requests = 0  # 依頼あり→拒否
+    negative_without_requests = 0  # 依頼なし
     
     for reviewer in active_reviewers:
         # 特徴量計算期間のレビュー依頼
@@ -186,21 +203,45 @@ def extract_review_acceptance_trajectories(
         
         # ラベル計算期間のレビュー依頼（訓練期間内）
         reviewer_label = label_df[label_df[reviewer_col] == reviewer]
-        
-        # ラベル計算期間にレビュー依頼を受けていない場合はスキップ
+
+        # ラベル計算期間にレビュー依頼を受けていない場合、拡張期間をチェック
         if len(reviewer_label) == 0:
-            skipped_no_label_requests += 1
-            continue
-        
-        # 継続判定：ラベル計算期間内に少なくとも1つのレビュー依頼を承諾したか
-        accepted_requests = reviewer_label[reviewer_label[label_col] == 1]
-        rejected_requests = reviewer_label[reviewer_label[label_col] == 0]
-        future_acceptance = len(accepted_requests) > 0
-        
-        if future_acceptance:
-            positive_count += 1
+            # 拡張期間のレビュー依頼をチェック（離脱判定のみ）
+            reviewer_extended_label = extended_label_df[extended_label_df[reviewer_col] == reviewer]
+
+            if len(reviewer_extended_label) == 0:
+                # 拡張期間にも依頼がない → 本当に離脱したと判断、除外
+                skipped_no_label_requests += 1
+                skipped_no_extended_requests += 1
+                continue
+            else:
+                # 拡張期間には依頼がある → この期間では活動しなかったので負例（0）
+                # ラベルはこの期間（future_window_start～end）での活動のみで決定
+                future_acceptance = False  # この期間では活動なし
+                accepted_requests = pd.DataFrame()  # 空
+                rejected_requests = pd.DataFrame()  # 空（依頼自体がない）
+                had_requests = False  # この期間に依頼がなかった
+                sample_weight = 0.5  # 低い重み（依頼なし）
+
+                # 統計カウント
+                rescued_by_extended += 1
+                negative_count += 1
+                negative_extended_count += 1
+                negative_without_requests += 1
         else:
-            negative_count += 1
+            # 通常のラベル期間に依頼がある場合
+            # 継続判定：ラベル計算期間内に少なくとも1つのレビュー依頼を承諾したか
+            accepted_requests = reviewer_label[reviewer_label[label_col] == 1]
+            rejected_requests = reviewer_label[reviewer_label[label_col] == 0]
+            future_acceptance = len(accepted_requests) > 0
+            had_requests = True  # この期間に依頼があった
+            sample_weight = 1.0  # 通常の重み（依頼あり）
+
+            if future_acceptance:
+                positive_count += 1
+            else:
+                negative_count += 1
+                negative_with_requests += 1
         
         # 特徴量計算期間の月次ラベルを計算（訓練用、データリークなし）
         history_months = pd.date_range(
@@ -299,7 +340,9 @@ def extract_review_acceptance_trajectories(
             'label_request_count': len(reviewer_label),
             'label_accepted_count': len(accepted_requests),
             'label_rejected_count': len(rejected_requests),
-            'future_acceptance': future_acceptance
+            'future_acceptance': future_acceptance,
+            'had_requests': had_requests,  # この期間に依頼があったか
+            'sample_weight': sample_weight  # サンプル重み（依頼なし=0.5、依頼あり=1.0）
         }
         
         trajectories.append(trajectory)
@@ -307,10 +350,15 @@ def extract_review_acceptance_trajectories(
     logger.info("=" * 80)
     logger.info(f"軌跡抽出完了: {len(trajectories)}サンプル（レビュアー）")
     logger.info(f"  スキップ（最小依頼数未満）: {skipped_min_requests}")
-    logger.info(f"  スキップ（ラベル期間に依頼なし）: {skipped_no_label_requests}")
+    logger.info(f"  スキップ（拡張期間にも依頼なし）: {skipped_no_extended_requests}")
+    logger.info(f"  拡張期間で救済: {rescued_by_extended} (この期間依頼なし→拡張期間に依頼あり→負例)")
     if trajectories:
-        logger.info(f"  正例（承諾あり）: {positive_count} ({positive_count/len(trajectories)*100:.1f}%)")
-        logger.info(f"  負例（全て拒否）: {negative_count} ({negative_count/len(trajectories)*100:.1f}%)")
+        logger.info(f"  正例（この期間で承諾あり）: {positive_count} ({positive_count/len(trajectories)*100:.1f}%)")
+        logger.info(f"  負例（この期間で承諾なし）: {negative_count} ({negative_count/len(trajectories)*100:.1f}%)")
+        if negative_with_requests > 0:
+            logger.info(f"    - 依頼あり→拒否（重み=1.0）: {negative_with_requests}")
+        if negative_without_requests > 0:
+            logger.info(f"    - 依頼なし（重み=0.5）: {negative_without_requests}")
         total_steps = sum(t['seq_len'] for t in trajectories)
         continued_steps = sum(sum(t['step_labels']) for t in trajectories)
         logger.info(f"  総ステップ数: {total_steps}")
@@ -331,11 +379,12 @@ def extract_evaluation_trajectories(
     reviewer_col: str = 'reviewer_email',
     date_col: str = 'request_time',
     label_col: str = 'label',
-    project: str = None
+    project: str = None,
+    extended_label_window_months: int = 12
 ) -> List[Dict[str, Any]]:
     """
     評価用軌跡を抽出（スナップショット特徴量用）
-    
+
     Args:
         df: レビュー依頼データ
         cutoff_date: Cutoff日（通常は訓練終了日）
@@ -347,7 +396,8 @@ def extract_evaluation_trajectories(
         date_col: 日付列名
         label_col: ラベル列名
         project: プロジェクト名（指定時は単一プロジェクトのみ）
-    
+        extended_label_window_months: 拡張ラベル期間（月数、デフォルト12）
+
     Returns:
         軌跡リスト
     """
@@ -356,11 +406,12 @@ def extract_evaluation_trajectories(
     logger.info(f"Cutoff日: {cutoff_date}")
     logger.info(f"履歴ウィンドウ: {history_window_months}ヶ月")
     logger.info(f"将来窓: {future_window_start_months}～{future_window_end_months}ヶ月")
+    logger.info(f"拡張ラベル期間: {future_window_start_months}～{extended_label_window_months}ヶ月")
     if project:
         logger.info(f"プロジェクト: {project} (単一プロジェクト)")
     else:
         logger.info("プロジェクト: 全プロジェクト")
-    logger.info("継続判定: レビュー依頼を受けて承諾したかどうか")
+    logger.info("継続判定: この期間で承諾=1、この期間で拒否または依頼なし=0")
     logger.info("=" * 80)
     
     # プロジェクトフィルタを適用
@@ -392,15 +443,28 @@ def extract_evaluation_trajectories(
         (df[date_col] >= eval_start) &
         (df[date_col] < eval_end)
     ]
-    
+
+    # 拡張評価期間のレビュー依頼データ
+    extended_eval_start = cutoff_date + pd.DateOffset(months=future_window_start_months)
+    extended_eval_end = cutoff_date + pd.DateOffset(months=extended_label_window_months)
+    extended_eval_df = df[
+        (df[date_col] >= extended_eval_start) &
+        (df[date_col] < extended_eval_end)
+    ]
+
     # 履歴期間内にレビュー依頼を受けたレビュアーを対象
     active_reviewers = history_df[reviewer_col].unique()
     logger.info(f"履歴期間内のレビュアー数: {len(active_reviewers)}")
-    
+
     skipped_min_requests = 0
     skipped_no_eval_requests = 0
+    skipped_no_extended_requests = 0
+    rescued_by_extended = 0
     positive_count = 0
     negative_count = 0
+    negative_extended_count = 0
+    negative_with_requests = 0  # 依頼あり→拒否
+    negative_without_requests = 0  # 依頼なし
     
     for reviewer in active_reviewers:
         # 履歴期間のレビュー依頼
@@ -413,23 +477,46 @@ def extract_evaluation_trajectories(
         
         # 評価期間のレビュー依頼
         reviewer_eval = eval_df[eval_df[reviewer_col] == reviewer]
-        
-        # 評価期間にレビュー依頼を受けていない場合はスキップ
+
+        # 評価期間にレビュー依頼を受けていない場合、拡張期間をチェック
         if len(reviewer_eval) == 0:
-            skipped_no_eval_requests += 1
-            continue
-        
-        # 継続判定：評価期間内に少なくとも1つのレビュー依頼を承諾したか
-        accepted_requests = reviewer_eval[reviewer_eval[label_col] == 1]
-        rejected_requests = reviewer_eval[reviewer_eval[label_col] == 0]
-        
-        future_acceptance = len(accepted_requests) > 0
-        
-        if future_acceptance:
-            positive_count += 1
+            # 拡張期間のレビュー依頼をチェック（離脱判定のみ）
+            reviewer_extended_eval = extended_eval_df[extended_eval_df[reviewer_col] == reviewer]
+
+            if len(reviewer_extended_eval) == 0:
+                # 拡張期間にも依頼がない → 本当に離脱したと判断、除外
+                skipped_no_eval_requests += 1
+                skipped_no_extended_requests += 1
+                continue
+            else:
+                # 拡張期間には依頼がある → この期間では活動しなかったので負例（0）
+                # ラベルはこの期間（future_window_start～end）での活動のみで決定
+                future_acceptance = False  # この期間では活動なし
+                accepted_requests = pd.DataFrame()  # 空
+                rejected_requests = pd.DataFrame()  # 空（依頼自体がない）
+                had_requests = False  # この期間に依頼がなかった
+                sample_weight = 0.5  # 低い重み（依頼なし）
+
+                # 統計カウント
+                rescued_by_extended += 1
+                negative_count += 1
+                negative_extended_count += 1
+                negative_without_requests += 1
         else:
-            negative_count += 1
-        
+            # 通常の評価期間に依頼がある場合
+            # 継続判定：評価期間内に少なくとも1つのレビュー依頼を承諾したか
+            accepted_requests = reviewer_eval[reviewer_eval[label_col] == 1]
+            rejected_requests = reviewer_eval[reviewer_eval[label_col] == 0]
+            future_acceptance = len(accepted_requests) > 0
+            had_requests = True  # この期間に依頼があった
+            sample_weight = 1.0  # 通常の重み（依頼あり）
+
+            if future_acceptance:
+                positive_count += 1
+            else:
+                negative_count += 1
+                negative_with_requests += 1
+
         # 活動履歴を構築
         activity_history = []
         for _, row in reviewer_history.iterrows():
@@ -439,6 +526,13 @@ def extract_evaluation_trajectories(
                 'project': row.get('project', 'unknown'),
                 'request_time': row.get('request_time', row[date_col]),
                 'accepted': row.get(label_col, 0) == 1,
+                # IRL特徴量計算用のデータを追加
+                'files_changed': row.get('change_files_count', 0),  # 強度計算用
+                'change_files_count': row.get('change_files_count', 0),  # 強度計算用
+                'lines_added': row.get('change_insertions', 0),  # 規模計算用
+                'lines_deleted': row.get('change_deletions', 0),  # 規模計算用
+                'change_insertions': row.get('change_insertions', 0),  # 規模計算用
+                'change_deletions': row.get('change_deletions', 0),  # 規模計算用
             }
             activity_history.append(activity)
         
@@ -467,7 +561,9 @@ def extract_evaluation_trajectories(
             'history_rejected_count': len(reviewer_history[reviewer_history[label_col] == 0]),
             'eval_request_count': len(reviewer_eval),
             'eval_accepted_count': len(accepted_requests),
-            'eval_rejected_count': len(rejected_requests)
+            'eval_rejected_count': len(rejected_requests),
+            'had_requests': had_requests,  # この期間に依頼があったか
+            'sample_weight': sample_weight  # サンプル重み（依頼なし=0.5、依頼あり=1.0）
         }
         
         trajectories.append(trajectory)
@@ -475,9 +571,15 @@ def extract_evaluation_trajectories(
     logger.info("=" * 80)
     logger.info(f"評価用軌跡抽出完了: {len(trajectories)}サンプル")
     logger.info(f"  スキップ（最小依頼数未満）: {skipped_min_requests}")
-    logger.info(f"  スキップ（評価期間に依頼なし）: {skipped_no_eval_requests}")
-    logger.info(f"  正例（承諾あり）: {positive_count} ({positive_count/len(trajectories)*100:.1f}%)")
-    logger.info(f"  負例（全て拒否）: {negative_count} ({negative_count/len(trajectories)*100:.1f}%)")
+    logger.info(f"  スキップ（拡張期間にも依頼なし）: {skipped_no_extended_requests}")
+    logger.info(f"  拡張期間で救済: {rescued_by_extended} (この期間依頼なし→拡張期間に依頼あり→負例)")
+    if trajectories:
+        logger.info(f"  正例（この期間で承諾あり）: {positive_count} ({positive_count/len(trajectories)*100:.1f}%)")
+        logger.info(f"  負例（この期間で承諾なし）: {negative_count} ({negative_count/len(trajectories)*100:.1f}%)")
+        if negative_with_requests > 0:
+            logger.info(f"    - 依頼あり→拒否（重み=1.0）: {negative_with_requests}")
+        if negative_without_requests > 0:
+            logger.info(f"    - 依頼なし（重み=0.5）: {negative_without_requests}")
     logger.info("=" * 80)
     
     return trajectories
@@ -626,7 +728,7 @@ def main():
             'hidden_dim': 128,
             'sequence': True,
             'seq_len': 0,
-            'learning_rate': 0.00005  # さらに学習率を下げる（0.0001→0.00005）
+            'learning_rate': 0.000075  # 学習率を調整（0.00005 → 0.000075）
         }
         irl_system = RetentionIRLSystem(config)
         
