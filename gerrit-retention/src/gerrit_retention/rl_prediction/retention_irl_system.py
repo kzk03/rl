@@ -40,12 +40,12 @@ class DeveloperState:
 
 @dataclass
 class DeveloperAction:
-    """開発者の行動表現"""
+    """開発者の行動表現（4次元版 - quality除外）"""
     action_type: str  # 'commit', 'review', 'merge', 'documentation', etc.
-    intensity: float  # 行動の強度（コード行数、レビューコメント数など）
-    quality: float    # 行動の質
+    intensity: float  # 行動の強度（変更ファイル数ベース）
     collaboration: float  # 協力度
     response_time: float   # レスポンス時間（日数）
+    review_size: float  # レビュー規模（変更行数）✨ NEW
     timestamp: datetime
 
 
@@ -287,35 +287,42 @@ class RetentionIRLSystem:
         self.set_focal_loss_params(alpha, gamma)
         logger.info(f"正例率 {positive_rate:.1%} に基づき自動調整: {strategy}")
     
-    def focal_loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    def focal_loss(self, predictions: torch.Tensor, targets: torch.Tensor,
+                   sample_weights: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
-        Focal Loss の計算
-        
-        FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
-        
+        Focal Loss の計算（重み付きバイナリラベル対応）
+
+        FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t) * sample_weight
+
         Args:
             predictions: 予測確率 [batch_size] or [batch_size, 1]
             targets: ターゲットラベル [batch_size] or [batch_size, 1]
-        
+            sample_weights: サンプル重み [batch_size] or None（依頼なし=0.5、依頼あり=1.0）
+
         Returns:
             Focal Loss
         """
         predictions = predictions.squeeze()
         targets = targets.squeeze()
-        
+
         # BCE loss
         bce_loss = F.binary_cross_entropy(predictions, targets, reduction='none')
-        
+
         # p_t の計算
         p_t = predictions * targets + (1 - predictions) * (1 - targets)
-        
+
         # alpha_t の計算
         alpha_t = self.focal_alpha * targets + (1 - self.focal_alpha) * (1 - targets)
-        
+
         # Focal Loss
         focal_weight = alpha_t * torch.pow(1 - p_t, self.focal_gamma)
         focal_loss = focal_weight * bce_loss
-        
+
+        # Sample weightを適用
+        if sample_weights is not None:
+            sample_weights = sample_weights.squeeze()
+            focal_loss = focal_loss * sample_weights
+
         return focal_loss.mean()
     
     def extract_developer_state(self, 
@@ -389,17 +396,17 @@ class RetentionIRLSystem:
                 # 行動タイプ
                 action_type = activity.get('type', 'unknown')
                 
-                # 行動の強度
+                # 行動の強度（変更ファイル数ベース）
                 intensity = self._calculate_action_intensity(activity)
-                
-                # 行動の質
-                quality = self._calculate_action_quality(activity)
                 
                 # 協力度
                 collaboration = self._calculate_action_collaboration(activity)
                 
                 # レスポンス時間（レビューリクエストから応答までの日数）
                 response_time = self._calculate_response_time(activity)
+                
+                # レビュー規模（変更行数ベース）
+                review_size = self._calculate_review_size(activity)
                 
                 # タイムスタンプ
                 timestamp_str = activity.get('timestamp', context_date.isoformat())
@@ -411,9 +418,9 @@ class RetentionIRLSystem:
                 actions.append(DeveloperAction(
                     action_type=action_type,
                     intensity=intensity,
-                    quality=quality,
                     collaboration=collaboration,
                     response_time=response_time,
+                    review_size=review_size,  # quality → review_sizeに変更
                     timestamp=timestamp
                 ))
                 
@@ -452,19 +459,19 @@ class RetentionIRLSystem:
         return torch.tensor(features, dtype=torch.float32, device=self.device)
     
     def action_to_tensor(self, action: DeveloperAction) -> torch.Tensor:
-        """行動をテンソルに変換（4次元版 - 全特徴量を0-1に正規化）"""
+        """行動をテンソルに変換（4次元版 - quality除外、review_size追加）"""
         
         # レスポンス時間を「素早さ」に変換（0-1の範囲に正規化）
         # response_time が短い（素早い）ほど値が大きくなる
-        # 10日でほぼ0、即日で1.0に近い値
-        response_speed = 1.0 / (1.0 + action.response_time / 3.0)  # 3日でおよそ0.5
+        # 3日でおよそ0.5、即日で1.0に近い値
+        response_speed = 1.0 / (1.0 + action.response_time / 3.0)
         
         # 全特徴量を0-1の範囲に正規化
         features = [
-            min(action.intensity, 1.0),        # 既に0-1と仮定、念のためクリップ
-            min(action.quality, 1.0),          # 既に0-1と仮定、念のためクリップ
-            min(action.collaboration, 1.0),    # 既に0-1と仮定、念のためクリップ
-            min(response_speed, 1.0)           # レスポンス速度（素早いほど大きい、0-1）
+            min(action.intensity, 1.0),        # 強度（変更ファイル数、0-1）
+            min(action.collaboration, 1.0),    # 協力度（0-1）
+            min(response_speed, 1.0),           # レスポンス速度（素早いほど大きい、0-1）
+            min(action.review_size, 1.0)        # レビュー規模（変更行数、0-1）✨ NEW
         ]
         
         return torch.tensor(features, dtype=torch.float32, device=self.device)
@@ -1048,15 +1055,13 @@ class RetentionIRLSystem:
         return min(load_ratio / 2.0, 1.0)  # 2倍の負荷を1.0にマッピング
     
     def _calculate_action_intensity(self, activity: Dict[str, Any]) -> float:
-        """行動の強度を計算"""
+        """行動の強度を計算（変更ファイル数ベース）"""
         
-        lines_added = activity.get('lines_added', 0)
-        lines_deleted = activity.get('lines_deleted', 0)
-        files_changed = activity.get('files_changed', 1)
+        files_changed = activity.get('files_changed', 0)
         
-        # 正規化された強度
-        intensity = min((lines_added + lines_deleted) / (files_changed * 50), 1.0)
-        return max(intensity, 0.1)
+        # 変更ファイル数で強度を計算（正規化）
+        intensity = min(files_changed / 20.0, 1.0)  # 20ファイルで1.0
+        return max(intensity, 0.0)
     
     def _calculate_action_quality(self, activity: Dict[str, Any]) -> float:
         """行動の質を計算"""
@@ -1085,6 +1090,17 @@ class RetentionIRLSystem:
         }
         
         return collaboration_types.get(action_type, 0.3)
+    
+    def _calculate_review_size(self, activity: Dict[str, Any]) -> float:
+        """レビュー規模を計算（変更行数ベース）"""
+        
+        lines_added = activity.get('lines_added', 0)
+        lines_deleted = activity.get('lines_deleted', 0)
+        total_lines = lines_added + lines_deleted
+        
+        # 変更行数で規模を計算（正規化）
+        review_size = min(total_lines / 500.0, 1.0)  # 500行で1.0
+        return max(review_size, 0.0)
     
     def _calculate_response_time(self, activity: Dict[str, Any]) -> float:
         """レスポンス時間を計算（日数）"""
@@ -1302,10 +1318,14 @@ class RetentionIRLSystem:
                         
                         # 損失計算（月次集約ラベルを使用）
                         targets = torch.tensor([1.0 if label else 0.0 for label in step_labels[:min_len]], device=self.device)
-                        
-                        # 継続予測損失（Focal Loss を使用）
+
+                        # サンプル重みを取得（依頼なし=0.5、依頼あり=1.0）
+                        sample_weight = trajectory.get('sample_weight', 1.0)
+                        sample_weights = torch.full([min_len], sample_weight, device=self.device)
+
+                        # 継続予測損失（Focal Loss を使用、重み付き）
                         continuation_loss = self.focal_loss(
-                            predicted_continuation_flat, targets
+                            predicted_continuation_flat, targets, sample_weights
                         )
                         
                         # 報酬損失（月次集約ラベルから逆算）
@@ -1314,34 +1334,35 @@ class RetentionIRLSystem:
                         )
                         
                         loss_per_step = continuation_loss + reward_loss
-                        
-                    else:
-                        # 単一ステップ処理（最新のラベルを使用）
-                        recent_action = actions[-1]
-                        state_tensor = self.state_to_tensor(state)
-                        action_tensor = self.action_to_tensor(recent_action)
-                        
-                        predicted_reward, predicted_continuation = self.network(
-                            state_tensor.unsqueeze(0), action_tensor.unsqueeze(0)
-                        )
-                        
-                        # 損失計算（最新の月次集約ラベルを使用）
-                        step_labels = trajectory.get('step_labels', [])
-                        if step_labels:
-                            latest_label = step_labels[-1]
-                            target = torch.tensor([1.0 if latest_label else 0.0], device=self.device)
-                        else:
-                            target = torch.tensor([0.0], device=self.device)
-                        
-                        continuation_loss = self.focal_loss(
-                            predicted_continuation.squeeze(), target
-                        )
-                        
-                        reward_loss = F.mse_loss(
-                            predicted_reward.squeeze(), target * 2.0 - 1.0
-                        )
-                        
-                        loss_per_step = continuation_loss + reward_loss
+
+                    # 単一ステップモードは使用しない（LSTMモードのみ使用）
+                    # else:
+                    #     # 単一ステップ処理（最新のラベルを使用）
+                    #     recent_action = actions[-1]
+                    #     state_tensor = self.state_to_tensor(state)
+                    #     action_tensor = self.action_to_tensor(recent_action)
+                    #
+                    #     predicted_reward, predicted_continuation = self.network(
+                    #         state_tensor.unsqueeze(0), action_tensor.unsqueeze(0)
+                    #     )
+                    #
+                    #     # 損失計算（最新の月次集約ラベルを使用）
+                    #     step_labels = trajectory.get('step_labels', [])
+                    #     if step_labels:
+                    #         latest_label = step_labels[-1]
+                    #         target = torch.tensor([1.0 if latest_label else 0.0], device=self.device)
+                    #     else:
+                    #         target = torch.tensor([0.0], device=self.device)
+                    #
+                    #     continuation_loss = self.focal_loss(
+                    #         predicted_continuation.squeeze(), target
+                    #     )
+                    #
+                    #     reward_loss = F.mse_loss(
+                    #         predicted_reward.squeeze(), target * 2.0 - 1.0
+                    #     )
+                    #
+                    #     loss_per_step = continuation_loss + reward_loss
                     
                     # バックプロパゲーション
                     self.optimizer.zero_grad()
