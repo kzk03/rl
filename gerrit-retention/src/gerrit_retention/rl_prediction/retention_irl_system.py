@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 
 logger = logging.getLogger(__name__)
@@ -21,17 +22,19 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DeveloperState:
-    """開発者の状態表現"""
+    """開発者の状態表現（10次元版）"""
     developer_id: str
     experience_days: int
     total_changes: int
     total_reviews: int
-    project_count: int
+    # project_count: int  # マルチプロジェクト対応時に有効化（現状はプロジェクトフィルタにより常に1）
     recent_activity_frequency: float
     avg_activity_gap: float
     activity_trend: str
     collaboration_score: float
     code_quality_score: float
+    recent_acceptance_rate: float  # 直近30日のレビュー受諾率
+    review_load: float  # レビュー負荷（直近30日 / 平均）
     timestamp: datetime
 
 
@@ -42,48 +45,55 @@ class DeveloperAction:
     intensity: float  # 行動の強度（コード行数、レビューコメント数など）
     quality: float    # 行動の質
     collaboration: float  # 協力度
+    response_time: float   # レスポンス時間（日数）
     timestamp: datetime
 
 
 class RetentionIRLNetwork(nn.Module):
     """継続予測のためのIRLネットワーク (拡張: 時系列対応)"""
     
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, sequence: bool = False, seq_len: int = 10):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, sequence: bool = False, seq_len: int = 10, dropout: float = 0.3):
         super().__init__()
         self.sequence = sequence
         self.seq_len = seq_len
         
-        # 状態エンコーダー
+        # 状態エンコーダー（Dropout追加）
         self.state_encoder = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Dropout(dropout)
         )
         
-        # 行動エンコーダー
+        # 行動エンコーダー（Dropout追加）
         self.action_encoder = nn.Sequential(
             nn.Linear(action_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Dropout(dropout)
         )
         
         if self.sequence:
-            # LSTM for sequence
-            self.lstm = nn.LSTM(hidden_dim // 2, hidden_dim, num_layers=1, batch_first=True)
+            # LSTM for sequence（dropout付き）
+            self.lstm = nn.LSTM(hidden_dim // 2, hidden_dim, num_layers=1, batch_first=True, dropout=0.0 if dropout == 0 else dropout)
         
-        # 報酬予測器
+        # 報酬予測器（Dropout追加）
         self.reward_predictor = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 1)
         )
         
-        # 継続確率予測器
+        # 継続確率予測器（Dropout追加）
         self.continuation_predictor = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 1),
             nn.Sigmoid()
         )
@@ -103,7 +113,7 @@ class RetentionIRLNetwork(nn.Module):
             continuation_prob: 継続確率 [batch_size, 1]
             hidden: 隠れ状態 [batch_size, hidden_dim] (return_hidden=Trueの場合)
         """
-        if self.sequence:
+        if self.sequence and len(state.shape) == 3:
             # Sequence mode: (batch, seq, dim)
             batch_size, seq_len, _ = state.shape
             state_encoded = self.state_encoder(state.view(-1, state.shape[-1])).view(batch_size, seq_len, -1)
@@ -138,7 +148,7 @@ class RetentionIRLNetwork(nn.Module):
                 lstm_out, _ = self.lstm(combined)
                 hidden = lstm_out[:, -1, :]  # Last timestep
         else:
-            # Single step mode
+            # Single step mode (スナップショット評価用)
             state_encoded = self.state_encoder(state)
             action_encoded = self.action_encoder(action)
             combined = torch.cat([state_encoded, action_encoded], dim=1)  # Concat for full hidden_dim
@@ -203,7 +213,7 @@ class RetentionIRLSystem:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         
-        # ネットワーク設定
+        # ネットワーク設定（10次元状態、5次元行動）
         self.state_dim = config.get('state_dim', 10)
         self.action_dim = config.get('action_dim', 5)
         self.hidden_dim = config.get('hidden_dim', 128)
@@ -228,7 +238,85 @@ class RetentionIRLSystem:
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
         
+        # Focal Loss のパラメータ（デフォルト値）
+        self.focal_alpha = 0.25  # クラス重み（ポジティブクラスの重み）
+        self.focal_gamma = 2.0   # フォーカスパラメータ（難しい例に注目）
+        
         logger.info("継続予測IRLシステムを初期化しました")
+    
+    def set_focal_loss_params(self, alpha: float, gamma: float):
+        """
+        Focal Loss のパラメータを動的に設定
+        
+        Args:
+            alpha: クラス重み（0～1、小さいほど正例重視）
+            gamma: フォーカスパラメータ（0～5、大きいほど難しい例重視）
+        """
+        self.focal_alpha = alpha
+        self.focal_gamma = gamma
+        logger.info(f"Focal Loss パラメータ更新: alpha={alpha:.3f}, gamma={gamma:.3f}")
+    
+    def auto_tune_focal_loss(self, positive_rate: float):
+        """
+        正例率に応じて Focal Loss パラメータを自動調整
+        
+        Args:
+            positive_rate: 訓練データの正例率（0～1）
+        
+        調整ロジック:
+        - 正例率が高い（≥0.6）: alpha=0.4, gamma=1.5（バランス重視）
+        - 正例率が中程度（0.3～0.6）: alpha=0.3, gamma=2.0（標準）
+        - 正例率が低い（<0.3）: alpha=0.2, gamma=2.5（Recall 重視）
+        """
+        if positive_rate >= 0.6:
+            # 正例が多い → 負例も重視（バランス）
+            alpha = 0.4
+            gamma = 1.5
+            strategy = "バランス重視（正例率≥60%）"
+        elif positive_rate >= 0.3:
+            # 中程度 → 標準設定（閾値を40%→30%に引き下げ）
+            alpha = 0.3
+            gamma = 2.0
+            strategy = "標準設定（正例率30-60%）"
+        else:
+            # 正例が非常に少ない → Recall 重視
+            alpha = 0.2
+            gamma = 2.5
+            strategy = "Recall 重視（正例率<30%）"
+        
+        self.set_focal_loss_params(alpha, gamma)
+        logger.info(f"正例率 {positive_rate:.1%} に基づき自動調整: {strategy}")
+    
+    def focal_loss(self, predictions: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """
+        Focal Loss の計算
+        
+        FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+        
+        Args:
+            predictions: 予測確率 [batch_size] or [batch_size, 1]
+            targets: ターゲットラベル [batch_size] or [batch_size, 1]
+        
+        Returns:
+            Focal Loss
+        """
+        predictions = predictions.squeeze()
+        targets = targets.squeeze()
+        
+        # BCE loss
+        bce_loss = F.binary_cross_entropy(predictions, targets, reduction='none')
+        
+        # p_t の計算
+        p_t = predictions * targets + (1 - predictions) * (1 - targets)
+        
+        # alpha_t の計算
+        alpha_t = self.focal_alpha * targets + (1 - self.focal_alpha) * (1 - targets)
+        
+        # Focal Loss
+        focal_weight = alpha_t * torch.pow(1 - p_t, self.focal_gamma)
+        focal_loss = focal_weight * bce_loss
+        
+        return focal_loss.mean()
     
     def extract_developer_state(self, 
                                developer: Dict[str, Any], 
@@ -247,8 +335,8 @@ class RetentionIRLSystem:
         # 活動統計
         total_changes = developer.get('changes_authored', 0)
         total_reviews = developer.get('changes_reviewed', 0)
-        projects = developer.get('projects', [])
-        project_count = len(projects) if isinstance(projects, list) else 0
+        # projects = developer.get('projects', [])  # マルチプロジェクト対応時に有効化
+        # project_count = len(projects) if isinstance(projects, list) else 0
         
         # 最近の活動パターン
         recent_activities = self._get_recent_activities(activity_history, context_date, days=30)
@@ -267,17 +355,25 @@ class RetentionIRLSystem:
         # コード品質スコア（簡易版）
         code_quality_score = self._calculate_code_quality_score(activity_history)
         
+        # 最近のレビュー受諾率（直近30日）
+        recent_acceptance_rate = self._calculate_recent_acceptance_rate(activity_history, context_date, days=30)
+        
+        # レビュー負荷（直近30日 / 平均）
+        review_load = self._calculate_review_load(activity_history, context_date, days=30)
+        
         return DeveloperState(
             developer_id=developer.get('developer_id', 'unknown'),
             experience_days=experience_days,
             total_changes=total_changes,
             total_reviews=total_reviews,
-            project_count=project_count,
+            # project_count=project_count,  # マルチプロジェクト対応時に有効化
             recent_activity_frequency=recent_activity_frequency,
             avg_activity_gap=avg_activity_gap,
             activity_trend=activity_trend,
             collaboration_score=collaboration_score,
             code_quality_score=code_quality_score,
+            recent_acceptance_rate=recent_acceptance_rate,
+            review_load=review_load,
             timestamp=context_date
         )
     
@@ -302,6 +398,9 @@ class RetentionIRLSystem:
                 # 協力度
                 collaboration = self._calculate_action_collaboration(activity)
                 
+                # レスポンス時間（レビューリクエストから応答までの日数）
+                response_time = self._calculate_response_time(activity)
+                
                 # タイムスタンプ
                 timestamp_str = activity.get('timestamp', context_date.isoformat())
                 if isinstance(timestamp_str, str):
@@ -314,6 +413,7 @@ class RetentionIRLSystem:
                     intensity=intensity,
                     quality=quality,
                     collaboration=collaboration,
+                    response_time=response_time,
                     timestamp=timestamp
                 ))
                 
@@ -324,7 +424,7 @@ class RetentionIRLSystem:
         return actions
     
     def state_to_tensor(self, state: DeveloperState) -> torch.Tensor:
-        """状態をテンソルに変換"""
+        """状態をテンソルに変換（10次元版 - 全特徴量を0-1に正規化）"""
         
         # 活動トレンドのエンコーディング
         trend_encoding = {
@@ -334,41 +434,37 @@ class RetentionIRLSystem:
             'unknown': 0.25
         }
         
+        # 全特徴量を0-1の範囲に正規化（上限でクリップ）
         features = [
-            state.experience_days / 365.0,  # 正規化（年単位）
-            state.total_changes / 100.0,    # 正規化
-            state.total_reviews / 100.0,    # 正規化
-            state.project_count / 10.0,     # 正規化
-            state.recent_activity_frequency,
-            state.avg_activity_gap / 30.0,  # 正規化（月単位）
-            trend_encoding.get(state.activity_trend, 0.25),
-            state.collaboration_score,
-            state.code_quality_score,
-            (datetime.now() - state.timestamp).days / 365.0  # 時間経過
+            min(state.experience_days / 730.0, 1.0),  # 2年でキャップ
+            min(state.total_changes / 500.0, 1.0),    # 500件でキャップ
+            min(state.total_reviews / 500.0, 1.0),    # 500件でキャップ
+            # min(state.project_count / 5.0, 1.0),    # マルチプロジェクト対応時に有効化
+            min(state.recent_activity_frequency, 1.0), # 既に0-1
+            min(state.avg_activity_gap / 60.0, 1.0),  # 60日でキャップ
+            trend_encoding.get(state.activity_trend, 0.25), # 既に0-1
+            min(state.collaboration_score, 1.0),      # 既に0-1
+            min(state.code_quality_score, 1.0),       # 既に0-1
+            min(state.recent_acceptance_rate, 1.0),   # 既に0-1（直近30日の受諾率）
+            min(state.review_load, 1.0)               # 既に0-1（負荷比率、正規化済み）
         ]
         
         return torch.tensor(features, dtype=torch.float32, device=self.device)
     
     def action_to_tensor(self, action: DeveloperAction) -> torch.Tensor:
-        """行動をテンソルに変換"""
+        """行動をテンソルに変換（4次元版 - 全特徴量を0-1に正規化）"""
         
-        # 行動タイプのエンコーディング
-        type_encoding = {
-            'commit': 1.0,
-            'review': 0.8,
-            'merge': 0.9,
-            'documentation': 0.6,
-            'issue': 0.4,
-            'collaboration': 0.7,
-            'unknown': 0.1
-        }
+        # レスポンス時間を「素早さ」に変換（0-1の範囲に正規化）
+        # response_time が短い（素早い）ほど値が大きくなる
+        # 10日でほぼ0、即日で1.0に近い値
+        response_speed = 1.0 / (1.0 + action.response_time / 3.0)  # 3日でおよそ0.5
         
+        # 全特徴量を0-1の範囲に正規化
         features = [
-            type_encoding.get(action.action_type, 0.1),
-            action.intensity,
-            action.quality,
-            action.collaboration,
-            (datetime.now() - action.timestamp).days / 365.0  # 時間経過
+            min(action.intensity, 1.0),        # 既に0-1と仮定、念のためクリップ
+            min(action.quality, 1.0),          # 既に0-1と仮定、念のためクリップ
+            min(action.collaboration, 1.0),    # 既に0-1と仮定、念のためクリップ
+            min(response_speed, 1.0)           # レスポンス速度（素早いほど大きい、0-1）
         ]
         
         return torch.tensor(features, dtype=torch.float32, device=self.device)
@@ -859,6 +955,98 @@ class RetentionIRLSystem:
         
         return min(quality_count / total_activities + 0.3, 1.0)
     
+    def _calculate_recent_acceptance_rate(self, activity_history: List[Dict[str, Any]], 
+                                         context_date: datetime, days: int = 30) -> float:
+        """
+        直近N日のレビュー受諾率を計算
+        
+        Args:
+            activity_history: 活動履歴
+            context_date: 基準日
+            days: 対象期間（日数）
+        
+        Returns:
+            受諾率（0.0～1.0）、依頼がない場合は0.5（中立）
+        """
+        cutoff_date = context_date - timedelta(days=days)
+        
+        # 直近の活動のみフィルタ
+        recent_activities = [
+            activity for activity in activity_history
+            if activity.get('timestamp', context_date) >= cutoff_date
+        ]
+        
+        if not recent_activities:
+            return 0.5  # データなし → 中立
+        
+        # レビュー依頼とその受諾を集計
+        review_requests = 0
+        accepted_reviews = 0
+        
+        for activity in recent_activities:
+            # レビュー関連の活動かチェック
+            if activity.get('action_type') == 'review' or 'review' in activity.get('type', '').lower():
+                review_requests += 1
+                # 受諾したかチェック
+                if activity.get('accepted', False):
+                    accepted_reviews += 1
+        
+        if review_requests == 0:
+            return 0.5  # レビュー依頼なし → 中立
+        
+        return accepted_reviews / review_requests
+    
+    def _calculate_review_load(self, activity_history: List[Dict[str, Any]], 
+                              context_date: datetime, days: int = 30) -> float:
+        """
+        レビュー負荷を計算（直近N日の依頼数 / 平均依頼数）
+        
+        Args:
+            activity_history: 活動履歴
+            context_date: 基準日
+            days: 対象期間（日数）
+        
+        Returns:
+            負荷比率（0.0～）、1.0が平均、>1.0が過負荷
+        """
+        cutoff_date = context_date - timedelta(days=days)
+        
+        # 直近の活動のみフィルタ
+        recent_activities = [
+            activity for activity in activity_history
+            if activity.get('timestamp', context_date) >= cutoff_date
+        ]
+        
+        # 直近のレビュー依頼数
+        recent_requests = sum(
+            1 for activity in recent_activities
+            if activity.get('action_type') == 'review' or 'review' in activity.get('type', '').lower()
+        )
+        
+        # 全期間の平均依頼数を計算（月あたり）
+        if not activity_history:
+            return 0.0
+        
+        total_requests = sum(
+            1 for activity in activity_history
+            if activity.get('action_type') == 'review' or 'review' in activity.get('type', '').lower()
+        )
+        
+        # 活動履歴の期間を計算
+        timestamps = [activity.get('timestamp', context_date) for activity in activity_history]
+        if len(timestamps) < 2:
+            return 1.0  # データ不足 → 標準負荷
+        
+        period_days = (max(timestamps) - min(timestamps)).days + 1
+        avg_requests_per_period = total_requests / max(period_days / days, 1.0)
+        
+        if avg_requests_per_period == 0:
+            return 0.0
+        
+        # 負荷比率を正規化（0-1の範囲にクリップ）
+        load_ratio = recent_requests / avg_requests_per_period
+        return min(load_ratio / 2.0, 1.0)  # 2倍の負荷を1.0にマッピング
+    
     def _calculate_action_intensity(self, activity: Dict[str, Any]) -> float:
         """行動の強度を計算"""
         
@@ -897,6 +1085,35 @@ class RetentionIRLSystem:
         }
         
         return collaboration_types.get(action_type, 0.3)
+    
+    def _calculate_response_time(self, activity: Dict[str, Any]) -> float:
+        """レスポンス時間を計算（日数）"""
+        
+        # レビューリクエストの作成日時と応答日時の差を計算
+        request_time = activity.get('request_time')
+        response_time = activity.get('timestamp')
+        
+        if request_time and response_time:
+            try:
+                if isinstance(request_time, str):
+                    request_dt = datetime.fromisoformat(request_time.replace('Z', '+00:00'))
+                else:
+                    request_dt = request_time
+                    
+                if isinstance(response_time, str):
+                    response_dt = datetime.fromisoformat(response_time.replace('Z', '+00:00'))
+                else:
+                    response_dt = response_time
+                
+                # 日数で計算
+                days_diff = (response_dt - request_dt).days
+                return max(0.0, days_diff)  # 負の値は0に
+                
+            except Exception:
+                return 0.0
+        
+        # デフォルト値（データがない場合）
+        return 0.0
     
     def _generate_irl_reasoning(self, 
                               state: DeveloperState, 
@@ -986,6 +1203,256 @@ class RetentionIRLSystem:
         
         logger.info(f"IRLモデルを読み込みました: {filepath}")
         return instance
+    
+    def train_irl_temporal_trajectories(self,
+                                       expert_trajectories: List[Dict[str, Any]],
+                                       epochs: int = 50) -> Dict[str, Any]:
+        """
+        時系列軌跡でIRLモデルを訓練
+        
+        Args:
+            expert_trajectories: 時系列軌跡データ
+            epochs: エポック数
+            
+        Returns:
+            訓練結果
+        """
+        logger.info("時系列IRL訓練開始")
+        logger.info(f"軌跡数: {len(expert_trajectories)}")
+        
+        self.network.train()
+        training_losses = []
+        
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            batch_count = 0
+            
+            for trajectory in expert_trajectories:
+                try:
+                    # 開発者情報と活動履歴を取得
+                    developer = trajectory.get('developer', trajectory.get('developer_info', {}))
+                    activity_history = trajectory.get('activity_history', [])
+                    context_date = trajectory.get('context_date', datetime.now())
+                    
+                    if not activity_history:
+                        continue
+                    
+                    # 状態と行動を抽出
+                    state = self.extract_developer_state(developer, activity_history, context_date)
+                    actions = self.extract_developer_actions(activity_history, context_date)
+                    
+                    if not actions:
+                        continue
+                    
+                    # 時系列データとして処理
+                    if self.sequence:
+                        # 各ステップで損失を計算（月次集約ラベル）
+                        step_labels = trajectory.get('step_labels', [])
+                        monthly_histories = trajectory.get('monthly_activity_histories', [])
+                        
+                        if not step_labels or not monthly_histories:
+                            continue
+                        
+                        # 各月の時点での状態を計算（LSTM用）
+                        state_tensors = []
+                        action_tensors = []
+                        
+                        min_len = min(len(monthly_histories), len(step_labels))
+                        
+                        for i in range(min_len):
+                            month_history = monthly_histories[i]
+                            if not month_history:
+                                # 活動履歴がない場合はゼロ状態
+                                state_tensors.append(torch.zeros(self.state_dim, device=self.device))
+                                action_tensors.append(torch.zeros(self.action_dim, device=self.device))
+                                continue
+                            
+                            # この月時点での状態を計算
+                            month_context_date = month_history[-1]['timestamp']  # 最新の活動時刻
+                            month_state = self.extract_developer_state(developer, month_history, month_context_date)
+                            month_actions = self.extract_developer_actions(month_history, month_context_date)
+                            
+                            state_tensors.append(self.state_to_tensor(month_state))
+                            
+                            # 行動は最新のものを使用
+                            if month_actions:
+                                action_tensors.append(self.action_to_tensor(month_actions[-1]))
+                            else:
+                                action_tensors.append(torch.zeros(self.action_dim, device=self.device))
+                        
+                        if not state_tensors or not action_tensors:
+                            continue
+                        
+                        # 3Dテンソルとして構築（LSTM用: [batch=1, sequence_length, features]）
+                        state_sequence = torch.stack(state_tensors).unsqueeze(0)  # [1, seq_len, state_dim]
+                        action_sequence = torch.stack(action_tensors).unsqueeze(0)  # [1, seq_len, action_dim]
+                        
+                        # LSTM全ステップの予測（明示的に全ステップ処理）
+                        batch_size, seq_len, _ = state_sequence.shape
+                        state_encoded = self.network.state_encoder(state_sequence.view(-1, state_sequence.shape[-1])).view(batch_size, seq_len, -1)
+                        action_encoded = self.network.action_encoder(action_sequence.view(-1, action_sequence.shape[-1])).view(batch_size, seq_len, -1)
+                        
+                        combined = state_encoded + action_encoded
+                        lstm_out, _ = self.network.lstm(combined)  # [1, seq_len, hidden_dim]
+                        
+                        # 各ステップで報酬と継続確率を予測
+                        lstm_out_flat = lstm_out.reshape(-1, lstm_out.size(-1))  # [seq_len, hidden_dim]
+                        predicted_reward_flat = self.network.reward_predictor(lstm_out_flat).squeeze(-1)  # [seq_len]
+                        predicted_continuation_flat = self.network.continuation_predictor(lstm_out_flat).squeeze(-1)  # [seq_len]
+                        
+                        # 損失計算（月次集約ラベルを使用）
+                        targets = torch.tensor([1.0 if label else 0.0 for label in step_labels[:min_len]], device=self.device)
+                        
+                        # 継続予測損失（Focal Loss を使用）
+                        continuation_loss = self.focal_loss(
+                            predicted_continuation_flat, targets
+                        )
+                        
+                        # 報酬損失（月次集約ラベルから逆算）
+                        reward_loss = F.mse_loss(
+                            predicted_reward_flat, targets * 2.0 - 1.0  # -1 to 1
+                        )
+                        
+                        loss_per_step = continuation_loss + reward_loss
+                        
+                    else:
+                        # 単一ステップ処理（最新のラベルを使用）
+                        recent_action = actions[-1]
+                        state_tensor = self.state_to_tensor(state)
+                        action_tensor = self.action_to_tensor(recent_action)
+                        
+                        predicted_reward, predicted_continuation = self.network(
+                            state_tensor.unsqueeze(0), action_tensor.unsqueeze(0)
+                        )
+                        
+                        # 損失計算（最新の月次集約ラベルを使用）
+                        step_labels = trajectory.get('step_labels', [])
+                        if step_labels:
+                            latest_label = step_labels[-1]
+                            target = torch.tensor([1.0 if latest_label else 0.0], device=self.device)
+                        else:
+                            target = torch.tensor([0.0], device=self.device)
+                        
+                        continuation_loss = self.focal_loss(
+                            predicted_continuation.squeeze(), target
+                        )
+                        
+                        reward_loss = F.mse_loss(
+                            predicted_reward.squeeze(), target * 2.0 - 1.0
+                        )
+                        
+                        loss_per_step = continuation_loss + reward_loss
+                    
+                    # バックプロパゲーション
+                    self.optimizer.zero_grad()
+                    loss_per_step.backward()
+                    self.optimizer.step()
+                    
+                    epoch_loss += loss_per_step.item()
+                    batch_count += 1
+                
+                except Exception as e:
+                    logger.warning(f"軌跡処理エラー: {e}")
+                    continue
+            
+            avg_loss = epoch_loss / max(batch_count, 1)
+            training_losses.append(avg_loss)
+            
+            if epoch % 10 == 0:
+                logger.info(f"エポック {epoch}: 平均損失 = {avg_loss:.4f}")
+        
+        logger.info("時系列IRL訓練完了")
+        
+        return {
+            'training_losses': training_losses,
+            'final_loss': training_losses[-1] if training_losses else 0.0,
+            'epochs_trained': epochs
+        }
+    
+    def predict_continuation_probability_snapshot(self,
+                                                developer: Dict[str, Any],
+                                                activity_history: List[Dict[str, Any]],
+                                                context_date: Optional[datetime] = None) -> Dict[str, Any]:
+        """
+        スナップショット特徴量で継続確率を予測
+        
+        Args:
+            developer: 開発者データ
+            activity_history: 活動履歴
+            context_date: 基準日
+            
+        Returns:
+            予測結果
+        """
+        if context_date is None:
+            context_date = datetime.now()
+        
+        self.network.eval()
+        
+        with torch.no_grad():
+            # スナップショット時点での状態と行動を抽出
+            state = self.extract_developer_state(developer, activity_history, context_date)
+            actions = self.extract_developer_actions(activity_history, context_date)
+            
+            if not actions:
+                return {
+                    'continuation_probability': 0.5,
+                    'confidence': 0.0,
+                    'reasoning': '活動履歴が不足しているため、デフォルト確率を返します'
+                }
+            
+            # 最新の行動を使用（スナップショット特徴量）
+            latest_action = actions[-1]
+            state_tensor = self.state_to_tensor(state)
+            action_tensor = self.action_to_tensor(latest_action)
+            
+            # 予測
+            predicted_reward, predicted_continuation = self.network(
+                state_tensor.unsqueeze(0), action_tensor.unsqueeze(0)
+            )
+            
+            continuation_prob = predicted_continuation.item()
+            confidence = abs(continuation_prob - 0.5) * 2
+            
+            # 理由生成
+            reasoning = self._generate_snapshot_reasoning(
+                developer, activity_history, continuation_prob, context_date
+            )
+            
+            return {
+                'continuation_probability': continuation_prob,
+                'confidence': confidence,
+                'reasoning': reasoning,
+                'method': 'snapshot_features',
+                'state_features': state_tensor.tolist(),
+                'action_features': action_tensor.tolist()
+            }
+    
+    def _generate_snapshot_reasoning(self,
+                                   developer: Dict[str, Any],
+                                   activity_history: List[Dict[str, Any]],
+                                   continuation_prob: float,
+                                   context_date: datetime) -> str:
+        """スナップショット特徴量に基づく理由生成"""
+        reasoning_parts = []
+        
+        # 活動履歴の分析
+        if len(activity_history) > 10:
+            reasoning_parts.append("豊富な活動履歴")
+        elif len(activity_history) > 5:
+            reasoning_parts.append("適度な活動履歴")
+        else:
+            reasoning_parts.append("限定的な活動履歴")
+        
+        # 継続確率に基づく判断
+        if continuation_prob > 0.7:
+            reasoning_parts.append("高い継続可能性")
+        elif continuation_prob > 0.3:
+            reasoning_parts.append("中程度の継続可能性")
+        else:
+            reasoning_parts.append("低い継続可能性")
+        
+        return f"スナップショット特徴量分析: {', '.join(reasoning_parts)}"
 
 
 if __name__ == "__main__":

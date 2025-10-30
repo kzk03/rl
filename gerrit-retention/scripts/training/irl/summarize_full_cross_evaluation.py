@@ -33,8 +33,18 @@ def summarize_results(output_base: Path):
     print("=" * 100)
     print()
     
-    # 訓練ラベルと評価期間の定義
-    train_labels = ["0-1m", "0-3m", "0-6m", "0-9m", "0-12m"]
+    # 訓練ラベルを自動検出（ディレクトリから取得）
+    train_dirs = sorted([d for d in output_base.glob("train_*") if d.is_dir()])
+    train_labels = [d.name.replace("train_", "") for d in train_dirs]
+    
+    if not train_labels:
+        print("訓練ディレクトリが見つかりません")
+        return
+    
+    print(f"検出された訓練ラベル: {train_labels}")
+    print()
+    
+    # 評価期間の定義
     eval_windows = ["0-3m", "3-6m", "6-9m", "9-12m"]
     
     # 各メトリクスごとにマトリクスを作成

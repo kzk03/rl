@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -34,6 +35,9 @@ from training.irl.train_irl_within_training_period import (
     load_review_logs,
 )
 
+from gerrit_retention.rl_prediction.enhanced_retention_irl_system import (
+    EnhancedRetentionIRLSystem,
+)
 from gerrit_retention.rl_prediction.retention_irl_system import RetentionIRLSystem
 
 logging.basicConfig(
@@ -41,6 +45,13 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# 日本語フォント設定
+import matplotlib
+
+matplotlib.rcParams['font.family'] = ['Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Takao', 'IPAexGothic', 'IPAPGothic', 'VL PGothic', 'Noto Sans CJK JP']
+# フォールバック設定
+matplotlib.rcParams['axes.unicode_minus'] = False
 
 # 特徴量名の定義
 STATE_FEATURE_NAMES = [
@@ -52,16 +63,14 @@ STATE_FEATURE_NAMES = [
     "平均活動間隔(月)",
     "活動トレンド",
     "協力スコア",
-    "コード品質スコア",
-    "時間経過(年)"
+    "コード品質スコア"
 ]
 
 ACTION_FEATURE_NAMES = [
-    "行動タイプ",
     "強度",
     "品質",
     "協力度",
-    "時間経過(年)"
+    "レスポンス時間"
 ]
 
 
@@ -122,9 +131,9 @@ def permutation_importance(
     logger.info(f"Permutation Importance計算開始 ({feature_type})")
     
     if feature_type == 'state':
-        n_features = 10
+        n_features = 9  # 現在のモデルは9次元の状態特徴量
     else:  # action
-        n_features = 5
+        n_features = 4  # 現在のモデルは4次元の行動特徴量
     
     importance_scores = {}
     
@@ -227,9 +236,9 @@ def gradient_based_importance(
     logger.info(f"Gradient-based Importance計算開始 ({feature_type})")
     
     if feature_type == 'state':
-        n_features = 10
+        n_features = 9  # 現在のモデルは9次元の状態特徴量
     else:
-        n_features = 5
+        n_features = 4  # 現在のモデルは4次元の行動特徴量
     
     gradients_sum = np.zeros(n_features)
     count = 0
@@ -396,25 +405,51 @@ def main():
     
     logger.info(f"評価サンプル数: {len(eval_trajectories)}")
     
-    # モデル読み込み
-    config = {
-        'state_dim': 10,
-        'action_dim': 5,
-        'hidden_dim': 128,  # 訓練時のhidden_dimに合わせる
-        'sequence': True,
-        'seq_len': 0  # 可変長
-    }
+    # 拡張IRLモデルかどうかを判定
+    checkpoint = torch.load(args.model, map_location='cpu', weights_only=False)
+    is_enhanced = isinstance(checkpoint, dict) and 'network_state_dict' in checkpoint
     
-    irl_system = RetentionIRLSystem(config)
-    
-    # モデル読み込み（直接state_dictとして保存されている場合）
-    checkpoint = torch.load(args.model, map_location=irl_system.device, weights_only=False)
-    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-        # 通常の保存形式
-        irl_system.network.load_state_dict(checkpoint['model_state_dict'])
+    if is_enhanced:
+        # 拡張IRL設定
+        config = checkpoint.get('config', {
+            'state_dim': 32,
+            'action_dim': 9,
+            'hidden_dim': 128,
+            'lstm_hidden_dim': 64,
+            'lstm_num_layers': 2,
+            'dropout_rate': 0.1,
+            'learning_rate': 0.001,
+            'weight_decay': 1e-5,
+            'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+            'seq_len': 0
+        })
+        irl_system = EnhancedRetentionIRLSystem(config)
+        logger.info("拡張IRLシステムを使用")
     else:
-        # 直接state_dictとして保存されている場合
-        irl_system.network.load_state_dict(checkpoint)
+        # 通常IRL設定
+        config = {
+            'state_dim': 9,  # 現在のモデルは9次元の状態特徴量
+            'action_dim': 4,  # 現在のモデルは4次元の行動特徴量
+            'hidden_dim': 128,
+            'sequence': True,
+            'seq_len': 0
+        }
+        irl_system = RetentionIRLSystem(config)
+        logger.info("通常IRLシステムを使用")
+    
+    # モデル読み込み（拡張IRL対応）
+    if is_enhanced:
+        # 拡張IRLモデルの読み込み
+        irl_system.network.load_state_dict(checkpoint['network_state_dict'])
+        logger.info("拡張IRLモデル形式で読み込み")
+    else:
+        # 通常モデルの読み込み
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            irl_system.network.load_state_dict(checkpoint['model_state_dict'])
+            logger.info("通常モデル形式で読み込み")
+        else:
+            irl_system.network.load_state_dict(checkpoint)
+            logger.info("直接state_dict形式で読み込み")
     
     irl_system.network.eval()
     logger.info(f"モデル読み込み完了: {args.model}")
@@ -469,10 +504,38 @@ def main():
             output_dir, 'Gradient'
         )
     
+    # 結果を日本語の特徴量名で保存
+    def convert_to_japanese_names(importance_dict, feature_names):
+        """数値インデックスを日本語の特徴量名に変換"""
+        japanese_dict = {}
+        for idx, importance in importance_dict.items():
+            feature_name = feature_names[int(idx)]
+            japanese_dict[feature_name] = importance
+        return japanese_dict
+    
+    # 結果を日本語名で構築
+    japanese_results = {
+        'baseline_auc': float(baseline_score),
+        'n_samples': len(eval_trajectories),
+        'methods': {}
+    }
+    
+    if 'permutation' in results['methods']:
+        japanese_results['methods']['permutation'] = {
+            'state': convert_to_japanese_names(results['methods']['permutation']['state'], STATE_FEATURE_NAMES),
+            'action': convert_to_japanese_names(results['methods']['permutation']['action'], ACTION_FEATURE_NAMES)
+        }
+    
+    if 'gradient' in results['methods']:
+        japanese_results['methods']['gradient'] = {
+            'state': convert_to_japanese_names(results['methods']['gradient']['state'], STATE_FEATURE_NAMES),
+            'action': convert_to_japanese_names(results['methods']['gradient']['action'], ACTION_FEATURE_NAMES)
+        }
+    
     # 結果を保存
     results_path = output_dir / 'feature_importance.json'
     with open(results_path, 'w', encoding='utf-8') as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
+        json.dump(japanese_results, f, indent=2, ensure_ascii=False)
     logger.info(f"結果保存: {results_path}")
     
     logger.info("=" * 80)

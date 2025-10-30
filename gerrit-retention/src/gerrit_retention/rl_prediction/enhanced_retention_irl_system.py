@@ -484,9 +484,11 @@ class EnhancedRetentionIRLSystem:
             'state_scaler_min': self.feature_extractor.state_scaler.data_min_,
             'state_scaler_max': self.feature_extractor.state_scaler.data_max_,
             'state_scaler_scale': self.feature_extractor.state_scaler.scale_,
+            'state_scaler_n_features': self.feature_extractor.state_scaler.n_features_in_,
             'action_scaler_min': self.feature_extractor.action_scaler.data_min_,
             'action_scaler_max': self.feature_extractor.action_scaler.data_max_,
             'action_scaler_scale': self.feature_extractor.action_scaler.scale_,
+            'action_scaler_n_features': self.feature_extractor.action_scaler.n_features_in_,
             'scaler_fitted': self.feature_extractor.scaler_fitted
         }, filepath)
         logger.info(f"拡張IRLモデルを保存: {filepath}")
@@ -504,12 +506,22 @@ class EnhancedRetentionIRLSystem:
 
         # Scalerの復元 (MinMaxScaler用)
         if checkpoint.get('scaler_fitted', False):
+            # State scaler
             system.feature_extractor.state_scaler.data_min_ = checkpoint['state_scaler_min']
             system.feature_extractor.state_scaler.data_max_ = checkpoint['state_scaler_max']
             system.feature_extractor.state_scaler.scale_ = checkpoint['state_scaler_scale']
+            system.feature_extractor.state_scaler.n_features_in_ = checkpoint.get('state_scaler_n_features', len(checkpoint['state_scaler_min']))
+            # min_ = -data_min_ / scale_ (MinMaxScalerの内部計算)
+            system.feature_extractor.state_scaler.min_ = -checkpoint['state_scaler_min'] / checkpoint['state_scaler_scale']
+            
+            # Action scaler
             system.feature_extractor.action_scaler.data_min_ = checkpoint['action_scaler_min']
             system.feature_extractor.action_scaler.data_max_ = checkpoint['action_scaler_max']
             system.feature_extractor.action_scaler.scale_ = checkpoint['action_scaler_scale']
+            system.feature_extractor.action_scaler.n_features_in_ = checkpoint.get('action_scaler_n_features', len(checkpoint['action_scaler_min']))
+            # min_ = -data_min_ / scale_
+            system.feature_extractor.action_scaler.min_ = -checkpoint['action_scaler_min'] / checkpoint['action_scaler_scale']
+            
             system.feature_extractor.scaler_fitted = True
 
         logger.info(f"拡張IRLモデルを読み込み: {filepath}")
