@@ -38,7 +38,7 @@ STATE_FEATURE_NAMES = [
     "最近の受諾率", "レビュー負荷"
 ]
 
-ACTION_FEATURE_NAMES = ["強度", "品質", "協力度", "応答速度"]
+ACTION_FEATURE_NAMES = ["強度（ファイル数）", "協力度", "応答速度", "レビュー規模（行数）"]
 
 
 def calculate_gradient_importance(
