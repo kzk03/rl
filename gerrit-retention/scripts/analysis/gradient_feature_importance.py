@@ -205,8 +205,13 @@ def visualize_combined_importance(
 
 def main():
     """メイン処理"""
+    import sys
     
-    base_dir = Path("outputs/review_acceptance_cross_eval_nova")
+    if len(sys.argv) > 1:
+        base_dir = Path(sys.argv[1])
+    else:
+        base_dir = Path("outputs/review_acceptance_cross_eval_nova")
+    
     train_periods = ['train_0-3m', 'train_3-6m', 'train_6-9m', 'train_9-12m']
     
     all_results = {}

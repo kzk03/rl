@@ -30,7 +30,7 @@ import pandas as pd
 import torch
 
 # ランダムシード固定
-RANDOM_SEED = 888
+RANDOM_SEED = 777
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
@@ -135,7 +135,7 @@ def extract_review_acceptance_trajectories(
         logger.info(f"プロジェクト: {project} (単一プロジェクト)")
     else:
         logger.info("プロジェクト: 全プロジェクト")
-    logger.info("ラベル定義: この期間で承諾=1、この期間で拒否または依頼なし=0、拡張期間にも依頼なし→除外")
+    logger.info("ラベル定義: この期間で承諾=1、この期間で拒否=0、依頼なし→拡張期間チェック、訓練時は拡張期間にも依頼なしで除外")
     logger.info("データリーク防止: 訓練期間内でラベル計算")
     logger.info("=" * 80)
     
@@ -183,14 +183,11 @@ def extract_review_acceptance_trajectories(
     logger.info(f"特徴量計算期間内のレビュアー数: {len(active_reviewers)}")
 
     skipped_min_requests = 0
-    skipped_no_label_requests = 0
-    skipped_no_extended_requests = 0
-    rescued_by_extended = 0
+    skipped_no_requests_until_end = 0  # 訓練期間末尾まで依頼がない（除外）
     positive_count = 0
     negative_count = 0
-    negative_extended_count = 0
     negative_with_requests = 0  # 依頼あり→拒否
-    negative_without_requests = 0  # 依頼なし
+    negative_without_requests = 0  # 依頼なし（拡張期間に依頼あり）
     
     for reviewer in active_reviewers:
         # 特徴量計算期間のレビュー依頼
@@ -206,28 +203,25 @@ def extract_review_acceptance_trajectories(
 
         # ラベル計算期間にレビュー依頼を受けていない場合、拡張期間をチェック
         if len(reviewer_label) == 0:
-            # 拡張期間のレビュー依頼をチェック（離脱判定のみ）
+            # 拡張期間のレビュー依頼をチェック
             reviewer_extended_label = extended_label_df[extended_label_df[reviewer_col] == reviewer]
 
+            # 訓練時は拡張期間まで見て除外判定
             if len(reviewer_extended_label) == 0:
-                # 拡張期間にも依頼がない → 本当に離脱したと判断、除外
-                skipped_no_label_requests += 1
-                skipped_no_extended_requests += 1
-                continue
-            else:
-                # 拡張期間には依頼がある → この期間では活動しなかったので負例（0）
-                # ラベルはこの期間（future_window_start～end）での活動のみで決定
-                future_acceptance = False  # この期間では活動なし
-                accepted_requests = pd.DataFrame()  # 空
-                rejected_requests = pd.DataFrame()  # 空（依頼自体がない）
-                had_requests = False  # この期間に依頼がなかった
-                sample_weight = 0.5  # 低い重み（依頼なし）
+                # 拡張期間にも依頼がない → 訓練期間末尾までアサインがない → 除外（実質離脱者）
+                skipped_no_requests_until_end += 1
+                continue  # このレビュアーをスキップ
+            
+            # 拡張期間に依頼がある → 再びアサインされる可能性 → 重み付き負例
+            future_acceptance = False  # この期間では活動なし
+            accepted_requests = pd.DataFrame()  # 空
+            rejected_requests = pd.DataFrame()  # 空（依頼自体がない）
+            had_requests = False  # この期間に依頼がなかった
+            sample_weight = 0.1  # 非常に低い重み（依頼なし）
 
-                # 統計カウント
-                rescued_by_extended += 1
-                negative_count += 1
-                negative_extended_count += 1
-                negative_without_requests += 1
+            # 統計カウント
+            negative_count += 1
+            negative_without_requests += 1
         else:
             # 通常のラベル期間に依頼がある場合
             # 継続判定：ラベル計算期間内に少なくとも1つのレビュー依頼を承諾したか
@@ -291,10 +285,11 @@ def extract_review_acceptance_trajectories(
             monthly_activities = []
             for _, row in month_history.iterrows():
                 activity = {
-                    'timestamp': row[date_col],
+                    'timestamp': row[date_col],  # タイムスタンプは常にdate_col
                     'action_type': 'review',
                     'project': row.get('project', 'unknown'),
                     'request_time': row.get('request_time', row[date_col]),
+                    'response_time': row.get('first_response_time'),  # response_time計算用
                     'accepted': row.get(label_col, 0) == 1,
                 }
                 monthly_activities.append(activity)
@@ -304,10 +299,11 @@ def extract_review_acceptance_trajectories(
         activity_history = []
         for _, row in reviewer_history.iterrows():
             activity = {
-                'timestamp': row[date_col],
+                'timestamp': row[date_col],  # タイムスタンプは常にdate_col
                 'action_type': 'review',
                 'project': row.get('project', 'unknown'),
                 'request_time': row.get('request_time', row[date_col]),
+                'response_time': row.get('first_response_time'),  # response_time計算用
                 'accepted': row.get(label_col, 0) == 1,
             }
             activity_history.append(activity)
@@ -342,7 +338,7 @@ def extract_review_acceptance_trajectories(
             'label_rejected_count': len(rejected_requests),
             'future_acceptance': future_acceptance,
             'had_requests': had_requests,  # この期間に依頼があったか
-            'sample_weight': sample_weight  # サンプル重み（依頼なし=0.5、依頼あり=1.0）
+            'sample_weight': sample_weight  # サンプル重み（依頼なし=0.3、依頼あり=1.0）
         }
         
         trajectories.append(trajectory)
@@ -350,15 +346,14 @@ def extract_review_acceptance_trajectories(
     logger.info("=" * 80)
     logger.info(f"軌跡抽出完了: {len(trajectories)}サンプル（レビュアー）")
     logger.info(f"  スキップ（最小依頼数未満）: {skipped_min_requests}")
-    logger.info(f"  スキップ（拡張期間にも依頼なし）: {skipped_no_extended_requests}")
-    logger.info(f"  拡張期間で救済: {rescued_by_extended} (この期間依頼なし→拡張期間に依頼あり→負例)")
+    logger.info(f"  スキップ（訓練期間末尾まで依頼なし）: {skipped_no_requests_until_end}")
     if trajectories:
         logger.info(f"  正例（この期間で承諾あり）: {positive_count} ({positive_count/len(trajectories)*100:.1f}%)")
         logger.info(f"  負例（この期間で承諾なし）: {negative_count} ({negative_count/len(trajectories)*100:.1f}%)")
         if negative_with_requests > 0:
             logger.info(f"    - 依頼あり→拒否（重み=1.0）: {negative_with_requests}")
         if negative_without_requests > 0:
-            logger.info(f"    - 依頼なし（重み=0.5）: {negative_without_requests}")
+            logger.info(f"    - 依頼なし（拡張期間に依頼あり、重み=0.1）: {negative_without_requests}")
         total_steps = sum(t['seq_len'] for t in trajectories)
         continued_steps = sum(sum(t['step_labels']) for t in trajectories)
         logger.info(f"  総ステップ数: {total_steps}")
@@ -411,7 +406,7 @@ def extract_evaluation_trajectories(
         logger.info(f"プロジェクト: {project} (単一プロジェクト)")
     else:
         logger.info("プロジェクト: 全プロジェクト")
-    logger.info("継続判定: この期間で承諾=1、この期間で拒否または依頼なし=0")
+    logger.info("継続判定: この期間で承諾=1、この期間で拒否=0、依頼なし→拡張期間チェック、評価時は拡張期間にも依頼なしで除外（予測の母集団に入れない）")
     logger.info("=" * 80)
     
     # プロジェクトフィルタを適用
@@ -457,14 +452,11 @@ def extract_evaluation_trajectories(
     logger.info(f"履歴期間内のレビュアー数: {len(active_reviewers)}")
 
     skipped_min_requests = 0
-    skipped_no_eval_requests = 0
-    skipped_no_extended_requests = 0
-    rescued_by_extended = 0
+    skipped_no_requests_until_end = 0  # 訓練期間末尾まで依頼がない（除外）
     positive_count = 0
     negative_count = 0
-    negative_extended_count = 0
     negative_with_requests = 0  # 依頼あり→拒否
-    negative_without_requests = 0  # 依頼なし
+    negative_without_requests = 0  # 依頼なし（拡張期間に依頼あり）
     
     for reviewer in active_reviewers:
         # 履歴期間のレビュー依頼
@@ -480,28 +472,24 @@ def extract_evaluation_trajectories(
 
         # 評価期間にレビュー依頼を受けていない場合、拡張期間をチェック
         if len(reviewer_eval) == 0:
-            # 拡張期間のレビュー依頼をチェック（離脱判定のみ）
+            # 拡張期間のレビュー依頼をチェック
             reviewer_extended_eval = extended_eval_df[extended_eval_df[reviewer_col] == reviewer]
 
             if len(reviewer_extended_eval) == 0:
-                # 拡張期間にも依頼がない → 本当に離脱したと判断、除外
-                skipped_no_eval_requests += 1
-                skipped_no_extended_requests += 1
-                continue
-            else:
-                # 拡張期間には依頼がある → この期間では活動しなかったので負例（0）
-                # ラベルはこの期間（future_window_start～end）での活動のみで決定
-                future_acceptance = False  # この期間では活動なし
-                accepted_requests = pd.DataFrame()  # 空
-                rejected_requests = pd.DataFrame()  # 空（依頼自体がない）
-                had_requests = False  # この期間に依頼がなかった
-                sample_weight = 0.5  # 低い重み（依頼なし）
+                # 拡張期間にも依頼がない → 訓練期間末尾までアサインがない → 除外（実質離脱者）
+                skipped_no_requests_until_end += 1
+                continue  # このレビュアーをスキップ
+            
+            # 拡張期間に依頼がある → 訓練期間中に指定期間を超えて再びアサインされる可能性 → 重み付き負例
+            future_acceptance = False  # この期間では活動なし
+            accepted_requests = pd.DataFrame()  # 空
+            rejected_requests = pd.DataFrame()  # 空（依頼自体がない）
+            had_requests = False  # この期間に依頼がなかった
+            sample_weight = 0.1  # 非常に低い重み（依頼なし）
 
-                # 統計カウント
-                rescued_by_extended += 1
-                negative_count += 1
-                negative_extended_count += 1
-                negative_without_requests += 1
+            # 統計カウント
+            negative_count += 1
+            negative_without_requests += 1
         else:
             # 通常の評価期間に依頼がある場合
             # 継続判定：評価期間内に少なくとも1つのレビュー依頼を承諾したか
@@ -521,10 +509,11 @@ def extract_evaluation_trajectories(
         activity_history = []
         for _, row in reviewer_history.iterrows():
             activity = {
-                'timestamp': row[date_col],
+                'timestamp': row[date_col],  # タイムスタンプは常にdate_col
                 'action_type': 'review',
                 'project': row.get('project', 'unknown'),
                 'request_time': row.get('request_time', row[date_col]),
+                'response_time': row.get('first_response_time'),  # response_time計算用
                 'accepted': row.get(label_col, 0) == 1,
                 # IRL特徴量計算用のデータを追加
                 'files_changed': row.get('change_files_count', 0),  # 強度計算用
@@ -563,7 +552,7 @@ def extract_evaluation_trajectories(
             'eval_accepted_count': len(accepted_requests),
             'eval_rejected_count': len(rejected_requests),
             'had_requests': had_requests,  # この期間に依頼があったか
-            'sample_weight': sample_weight  # サンプル重み（依頼なし=0.5、依頼あり=1.0）
+            'sample_weight': sample_weight  # サンプル重み（依頼なし=0.3、依頼あり=1.0）
         }
         
         trajectories.append(trajectory)
@@ -571,15 +560,14 @@ def extract_evaluation_trajectories(
     logger.info("=" * 80)
     logger.info(f"評価用軌跡抽出完了: {len(trajectories)}サンプル")
     logger.info(f"  スキップ（最小依頼数未満）: {skipped_min_requests}")
-    logger.info(f"  スキップ（拡張期間にも依頼なし）: {skipped_no_extended_requests}")
-    logger.info(f"  拡張期間で救済: {rescued_by_extended} (この期間依頼なし→拡張期間に依頼あり→負例)")
+    logger.info(f"  スキップ（訓練期間末尾まで依頼なし）: {skipped_no_requests_until_end}")
     if trajectories:
         logger.info(f"  正例（この期間で承諾あり）: {positive_count} ({positive_count/len(trajectories)*100:.1f}%)")
         logger.info(f"  負例（この期間で承諾なし）: {negative_count} ({negative_count/len(trajectories)*100:.1f}%)")
         if negative_with_requests > 0:
             logger.info(f"    - 依頼あり→拒否（重み=1.0）: {negative_with_requests}")
         if negative_without_requests > 0:
-            logger.info(f"    - 依頼なし（重み=0.5）: {negative_without_requests}")
+            logger.info(f"    - 依頼なし（拡張期間に依頼あり、重み=0.1）: {negative_without_requests}")
     logger.info("=" * 80)
     
     return trajectories
@@ -722,13 +710,18 @@ def main():
             return
         
         # IRLシステムを初期化
+        # バランスの取れた設定：
+        # - hidden_dim=128: 適度な表現力（256だと過剰）
+        # - dropout=0.2: 適度な正則化（0.0だと過学習、0.1だと不十分）
+        # - learning_rate=0.0001: やや高めで局所最適を回避
         config = {
             'state_dim': 10,  # 最近の受諾率+レビュー負荷を追加
             'action_dim': 4,
-            'hidden_dim': 128,
+            'hidden_dim': 128,  # 安定した表現力
             'sequence': True,
             'seq_len': 0,
-            'learning_rate': 0.000075  # 学習率を調整（0.00005 → 0.000075）
+            'learning_rate': 0.0001,  # 局所最適回避
+            'dropout': 0.2,  # 適度な正則化
         }
         irl_system = RetentionIRLSystem(config)
         
@@ -746,23 +739,90 @@ def main():
             epochs=args.epochs
         )
         
+        # 訓練データ上で最適閾値を決定
+        logger.info("訓練データ上で最適閾値を決定...")
+        train_y_true = []
+        train_y_pred = []
+        
+        for traj in train_trajectories:
+            # キー名を確認して適切に処理
+            developer = traj.get('developer', traj.get('developer_info', {}))
+            result = irl_system.predict_continuation_probability_snapshot(
+                developer,
+                traj['activity_history'],
+                traj['context_date']
+            )
+            train_y_true.append(1 if traj['future_acceptance'] else 0)
+            train_y_pred.append(result['continuation_probability'])
+        
+        train_y_true = np.array(train_y_true)
+        train_y_pred = np.array(train_y_pred)
+
+        # F1スコアを最大化する閾値を訓練データで決定
+        positive_rate = train_y_true.mean()
+        logger.info(f"訓練データ正例率: {positive_rate:.1%}")
+
+        # find_optimal_threshold を使用してF1スコアを最大化する閾値を探索
+        train_optimal_threshold_info = find_optimal_threshold(train_y_true, train_y_pred)
+        train_optimal_threshold = train_optimal_threshold_info['threshold']
+        train_optimal_threshold_info['positive_rate'] = float(positive_rate)
+        train_optimal_threshold_info['method'] = 'f1_maximization_on_train_data'
+
+        logger.info(f"F1最大化閾値（訓練データ）: {train_optimal_threshold:.4f}")
+        logger.info(f"訓練データ性能: Precision={train_optimal_threshold_info['precision']:.3f}, Recall={train_optimal_threshold_info['recall']:.3f}, F1={train_optimal_threshold_info['f1']:.3f}")
+        
+        # 訓練データの予測確率分布も保存（デバッグ用）
+        train_optimal_threshold_info['train_prediction_stats'] = {
+            'min': float(train_y_pred.min()),
+            'max': float(train_y_pred.max()),
+            'mean': float(train_y_pred.mean()),
+            'std': float(train_y_pred.std()),
+            'median': float(np.median(train_y_pred))
+        }
+        logger.info(f"訓練データ予測確率: [{train_optimal_threshold_info['train_prediction_stats']['min']:.4f}, {train_optimal_threshold_info['train_prediction_stats']['max']:.4f}]")
+        
         # モデルを保存
         model_path = output_dir / "irl_model.pt"
         torch.save(irl_system.network.state_dict(), model_path)
         logger.info(f"モデルを保存: {model_path}")
+        
+        # 閾値を保存
+        threshold_path = output_dir / "optimal_threshold.json"
+        with open(threshold_path, 'w') as f:
+            json.dump(train_optimal_threshold_info, f, indent=2)
+        logger.info(f"最適閾値を保存: {threshold_path}")
     else:
         # 既存モデルを読み込み
         logger.info(f"既存モデルを読み込み: {args.model}")
         config = {
             'state_dim': 10,  # 最近の受諾率+レビュー負荷を追加
             'action_dim': 4,
-            'hidden_dim': 128,
+            'hidden_dim': 128,  # 訓練時と同じ設定
             'sequence': True,
-            'seq_len': 0
+            'seq_len': 0,
+            'dropout': 0.2
         }
         irl_system = RetentionIRLSystem(config)
         irl_system.network.load_state_dict(torch.load(args.model))
         irl_system.network.eval()
+        
+        # 保存された閾値を読み込み
+        threshold_path = Path(args.model).parent / "optimal_threshold.json"
+        if threshold_path.exists():
+            with open(threshold_path) as f:
+                train_optimal_threshold_info = json.load(f)
+                train_optimal_threshold = train_optimal_threshold_info['threshold']
+            logger.info(f"保存された閾値を読み込み: {train_optimal_threshold:.4f}")
+        else:
+            train_optimal_threshold = 0.5
+            logger.warning(f"閾値ファイルが見つからないため、デフォルト値 {train_optimal_threshold:.4f} を使用")
+    
+    # グローバル変数として閾値を設定
+    global optimal_threshold_from_training
+    if 'train_optimal_threshold' in locals():
+        optimal_threshold_from_training = train_optimal_threshold
+    else:
+        optimal_threshold_from_training = 0.5
     
     # 評価用軌跡を抽出
     logger.info("評価用軌跡を抽出...")
@@ -819,11 +879,15 @@ def main():
     
     # メトリクスを計算
     logger.info("メトリクスを計算...")
-    
-    # 最適閾値を探索
-    optimal_threshold_info = find_optimal_threshold(y_true, y_pred)
-    optimal_threshold = optimal_threshold_info['threshold']
-    
+
+    # 訓練データで決定した閾値を使用（データリーク防止）
+    optimal_threshold = train_optimal_threshold
+    logger.info(f"訓練データで決定した閾値を使用: {optimal_threshold:.4f}")
+
+    # 参考：評価データ上での最適閾値も計算（比較用）
+    eval_optimal_threshold_info = find_optimal_threshold(y_true, y_pred)
+    logger.info(f"参考：評価データ上での最適閾値: {eval_optimal_threshold_info['threshold']:.4f} (F1={eval_optimal_threshold_info['f1']:.3f})")
+
     y_pred_binary = (y_pred >= optimal_threshold).astype(int)
     
     auc_roc = roc_auc_score(y_true, y_pred)
@@ -838,24 +902,42 @@ def main():
         'auc_roc': float(auc_roc),
         'auc_pr': float(auc_pr),
         'optimal_threshold': float(optimal_threshold),
+        'threshold_source': 'train_data',  # 訓練データで決定した閾値を使用
         'precision': float(precision_at_threshold),
         'recall': float(recall_at_threshold),
         'f1_score': float(f1_at_threshold),
         'positive_count': int(y_true.sum()),
         'negative_count': int((1 - y_true).sum()),
-        'total_count': int(len(y_true))
+        'total_count': int(len(y_true)),
+        # 参考情報：評価データでの最適閾値
+        'eval_optimal_threshold': float(eval_optimal_threshold_info['threshold']),
+        'eval_optimal_f1': float(eval_optimal_threshold_info['f1']),
+        # 予測確率の分布統計
+        'prediction_stats': {
+            'min': float(y_pred.min()),
+            'max': float(y_pred.max()),
+            'mean': float(y_pred.mean()),
+            'std': float(y_pred.std()),
+            'median': float(np.median(y_pred))
+        }
     }
     
     logger.info("=" * 80)
     logger.info("評価結果:")
     logger.info(f"  AUC-ROC: {metrics['auc_roc']:.4f}")
     logger.info(f"  AUC-PR: {metrics['auc_pr']:.4f}")
-    logger.info(f"  最適閾値: {metrics['optimal_threshold']:.4f}")
+    logger.info(f"  最適閾値（訓練データ決定）: {metrics['optimal_threshold']:.4f}")
     logger.info(f"  Precision: {metrics['precision']:.4f}")
     logger.info(f"  Recall: {metrics['recall']:.4f}")
     logger.info(f"  F1 Score: {metrics['f1_score']:.4f}")
     logger.info(f"  正例数: {metrics['positive_count']}")
     logger.info(f"  負例数: {metrics['negative_count']}")
+    logger.info("---")
+    logger.info("予測確率の分布:")
+    logger.info(f"  範囲: [{metrics['prediction_stats']['min']:.4f}, {metrics['prediction_stats']['max']:.4f}]")
+    logger.info(f"  平均: {metrics['prediction_stats']['mean']:.4f}")
+    logger.info(f"  標準偏差: {metrics['prediction_stats']['std']:.4f}")
+    logger.info(f"  中央値: {metrics['prediction_stats']['median']:.4f}")
     logger.info("=" * 80)
     
     # 結果を保存

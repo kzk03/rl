@@ -1,1 +1,0 @@
-uv run python scripts/offline/build_task_assignment_from_sequences.py --input outputs/irl/reviewer_sequences.json --cutoff 2023-07-01T00:00:00Z --outdir outputs/task_assign/window_1m --train-window-months 1

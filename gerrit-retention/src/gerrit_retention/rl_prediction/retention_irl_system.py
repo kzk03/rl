@@ -52,12 +52,12 @@ class DeveloperAction:
 class RetentionIRLNetwork(nn.Module):
     """継続予測のためのIRLネットワーク (拡張: 時系列対応)"""
     
-    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, sequence: bool = False, seq_len: int = 10, dropout: float = 0.3):
+    def __init__(self, state_dim: int, action_dim: int, hidden_dim: int = 128, sequence: bool = False, seq_len: int = 10, dropout: float = 0.1):
         super().__init__()
         self.sequence = sequence
         self.seq_len = seq_len
-        
-        # 状態エンコーダー（Dropout追加）
+
+        # 状態エンコーダー（Dropout削減: 0.3 → 0.1）
         self.state_encoder = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
@@ -66,8 +66,8 @@ class RetentionIRLNetwork(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout)
         )
-        
-        # 行動エンコーダー（Dropout追加）
+
+        # 行動エンコーダー（Dropout削減: 0.3 → 0.1）
         self.action_encoder = nn.Sequential(
             nn.Linear(action_dim, hidden_dim),
             nn.ReLU(),
@@ -76,20 +76,20 @@ class RetentionIRLNetwork(nn.Module):
             nn.ReLU(),
             nn.Dropout(dropout)
         )
-        
+
         if self.sequence:
             # LSTM for sequence（dropout付き）
             self.lstm = nn.LSTM(hidden_dim // 2, hidden_dim, num_layers=1, batch_first=True, dropout=0.0 if dropout == 0 else dropout)
-        
-        # 報酬予測器（Dropout追加）
+
+        # 報酬予測器（Dropout削減: 0.3 → 0.1）
         self.reward_predictor = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 1)
         )
-        
-        # 継続確率予測器（Dropout追加）
+
+        # 継続確率予測器（Dropout削減: 0.3 → 0.1）
         self.continuation_predictor = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim // 2),
             nn.ReLU(),
@@ -219,28 +219,31 @@ class RetentionIRLSystem:
         self.hidden_dim = config.get('hidden_dim', 128)
         self.sequence = config.get('sequence', False)
         self.seq_len = config.get('seq_len', 10)
+        self.dropout = config.get('dropout', 0.1)
+        # 予測確率の温度スケーリング（1.0で無効、<1でシャープ、>1でフラット）
+        self.output_temperature = float(config.get('output_temperature', 1.0))
         
         # デバイス設定
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # ネットワーク初期化
         self.network = RetentionIRLNetwork(
-            self.state_dim, self.action_dim, self.hidden_dim, self.sequence, self.seq_len
+            self.state_dim, self.action_dim, self.hidden_dim, self.sequence, self.seq_len, self.dropout
         ).to(self.device)
         
-        # オプティマイザー
+        # オプティマイザー（学習率を増加: 0.001 → 0.0003がデフォルト、さらに調整可能）
         self.optimizer = optim.Adam(
-            self.network.parameters(), 
-            lr=config.get('learning_rate', 0.001)
+            self.network.parameters(),
+            lr=config.get('learning_rate', 0.0003)
         )
         
         # 損失関数
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
         
-        # Focal Loss のパラメータ（デフォルト値）
+        # Focal Loss のパラメータ（デフォルト値、調整: gamma 2.0 → 1.0）
         self.focal_alpha = 0.25  # クラス重み（ポジティブクラスの重み）
-        self.focal_gamma = 2.0   # フォーカスパラメータ（難しい例に注目）
+        self.focal_gamma = 1.0   # フォーカスパラメータ（学習安定化のため削減）
         
         logger.info("継続予測IRLシステムを初期化しました")
     
@@ -263,25 +266,25 @@ class RetentionIRLSystem:
         Args:
             positive_rate: 訓練データの正例率（0～1）
         
-        調整ロジック:
-        - 正例率が高い（≥0.6）: alpha=0.4, gamma=1.5（バランス重視）
-        - 正例率が中程度（0.3～0.6）: alpha=0.3, gamma=2.0（標準）
-        - 正例率が低い（<0.3）: alpha=0.2, gamma=2.5（Recall 重視）
+        調整ロジック（gamma削減: 学習安定化のため）:
+        - 正例率が高い（≥0.6）: alpha=0.4, gamma=1.0（バランス重視）
+        - 正例率が中程度（0.3～0.6）: alpha=0.3, gamma=1.0（標準）
+        - 正例率が低い（<0.3）: alpha=0.25, gamma=1.5（Recall 重視）
         """
         if positive_rate >= 0.6:
             # 正例が多い → 負例も重視（バランス）
             alpha = 0.4
-            gamma = 1.5
+            gamma = 1.0
             strategy = "バランス重視（正例率≥60%）"
         elif positive_rate >= 0.3:
-            # 中程度 → 標準設定（閾値を40%→30%に引き下げ）
+            # 中程度 → 標準設定（gamma削減: 2.0 → 1.0）
             alpha = 0.3
-            gamma = 2.0
+            gamma = 1.0
             strategy = "標準設定（正例率30-60%）"
         else:
-            # 正例が非常に少ない → Recall 重視
-            alpha = 0.2
-            gamma = 2.5
+            # 正例が非常に少ない → Recall 重視（gamma削減: 2.5 → 1.5）
+            alpha = 0.25
+            gamma = 1.5
             strategy = "Recall 重視（正例率<30%）"
         
         self.set_focal_loss_params(alpha, gamma)
@@ -1107,7 +1110,7 @@ class RetentionIRLSystem:
         
         # レビューリクエストの作成日時と応答日時の差を計算
         request_time = activity.get('request_time')
-        response_time = activity.get('timestamp')
+        response_time = activity.get('response_time')  # 変更: timestamp → response_time
         
         if request_time and response_time:
             try:
@@ -1126,10 +1129,10 @@ class RetentionIRLSystem:
                 return max(0.0, days_diff)  # 負の値は0に
                 
             except Exception:
-                return 0.0
+                return 14.0  # 最大レスポンス時間（未応答/非アクティブ）
         
-        # デフォルト値（データがない場合）
-        return 0.0
+        # デフォルト値（データがない場合）: 未応答を表す最大値を使用
+        return 14.0  # 最大レスポンス時間（未応答/非アクティブ）
     
     def _generate_irl_reasoning(self, 
                               state: DeveloperState, 
@@ -1433,6 +1436,14 @@ class RetentionIRLSystem:
             )
             
             continuation_prob = predicted_continuation.item()
+            # 温度スケーリングで確率分布の広がりを調整
+            if self.output_temperature and abs(self.output_temperature - 1.0) > 1e-6:
+                p = min(max(continuation_prob, 1e-6), 1.0 - 1e-6)
+                # ロジットに変換して温度で割る（T<1でシャープ、T>1でフラット）
+                import math
+                logit = math.log(p / (1.0 - p))
+                scaled_logit = logit / self.output_temperature
+                continuation_prob = 1.0 / (1.0 + math.exp(-scaled_logit))
             confidence = abs(continuation_prob - 0.5) * 2
             
             # 理由生成

@@ -61,7 +61,7 @@ for train_period in train_periods:
         "--eval-end", EVAL_END,
         "--future-window-start", str(train_start_month),
         "--future-window-end", str(train_end_month),
-        "--epochs", "20",  # エポック数を20に設定
+        "--epochs", "30",  # エポック数を30に設定
         "--min-history-events", "3",
         "--output", str(output_dir),
         "--project", "openstack/nova"
