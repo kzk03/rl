@@ -1,3 +1,0 @@
-learning_months,prediction_months,n_population,n_train,continuation_rate,auc_roc,auc_pr,f1,precision,recall,tn,fp,fn,tp,model_path
-3,6,320,171,72.1875,0.7067464370835158,0.8395160294473387,0.838475499092559,0.721875,1.0,0,89,0,231,importants/snapshot_irl_post_activity_test/models/reward_model_h3m_t6m.pth
-12,6,320,214,72.1875,0.7229194026946837,0.8493549632346498,0.7865168539325843,0.8177570093457944,0.7575757575757576,50,39,56,175,importants/snapshot_irl_post_activity_test/models/reward_model_h12m_t6m.pth

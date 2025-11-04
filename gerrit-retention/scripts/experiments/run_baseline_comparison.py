@@ -47,6 +47,97 @@ from gerrit_retention.baselines import (
 from gerrit_retention.rl_prediction.retention_irl_system import RetentionIRLSystem
 
 
+def extract_trajectories_with_window(
+    df: pd.DataFrame,
+    snapshot_date: datetime,
+    history_months: int,
+    target_months: int,
+    reviewer_col: str = 'reviewer_email',
+    date_col: str = 'request_time'
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    指定された学習期間と予測期間で軌跡を抽出
+
+    Args:
+        df: レビューログ
+        snapshot_date: スナップショット日
+        history_months: 学習期間（ヶ月）
+        target_months: 予測期間（ヶ月）
+        reviewer_col: レビュアーカラム名
+        date_col: 日付カラム名
+
+    Returns:
+        train_trajectories: 訓練用軌跡リスト
+        test_trajectories: テスト用軌跡リスト（予測期間のラベル付き）
+    """
+    history_start = snapshot_date - pd.DateOffset(months=history_months)
+    target_end = snapshot_date + pd.DateOffset(months=target_months)
+
+    # 学習期間のデータ
+    history_df = df[(df[date_col] >= history_start) & (df[date_col] < snapshot_date)]
+
+    # 予測期間のデータ
+    target_df = df[(df[date_col] >= snapshot_date) & (df[date_col] < target_end)]
+
+    # レビュアーごとにグループ化
+    reviewers_in_history = set(history_df[reviewer_col].unique())
+
+    trajectories = []
+
+    for reviewer in reviewers_in_history:
+        reviewer_history = history_df[history_df[reviewer_col] == reviewer]
+        reviewer_target = target_df[target_df[reviewer_col] == reviewer]
+
+        # 継続ラベル: 予測期間中に活動があったかどうか
+        continued = len(reviewer_target) > 0
+
+        # 活動履歴を構築
+        activity_history = []
+        for _, row in reviewer_history.iterrows():
+            activity_history.append({
+                'type': 'review',
+                'timestamp': row[date_col],
+                'project': row.get('project', 'unknown'),
+                'message': '',
+                'lines_added': 0,
+                'lines_deleted': 0,
+                'files_changed': 1
+            })
+
+        # 開発者情報
+        developer_info = {
+            'developer_id': reviewer,
+            'first_seen': reviewer_history[date_col].min(),
+            'changes_authored': 0,
+            'changes_reviewed': len(reviewer_history),
+            'projects': reviewer_history['project'].unique().tolist() if 'project' in reviewer_history.columns else []
+        }
+
+        trajectories.append({
+            'developer': developer_info,
+            'activity_history': activity_history,
+            'continued': continued,
+            'context_date': snapshot_date,
+            'reviewer': reviewer,
+            'history_count': len(reviewer_history),
+            'target_count': len(reviewer_target)
+        })
+
+    # 訓練とテストに分割（80/20）
+    np.random.seed(42)
+    np.random.shuffle(trajectories)
+    split_idx = int(len(trajectories) * 0.8)
+
+    train_trajectories = trajectories[:split_idx]
+    test_trajectories = trajectories[split_idx:]
+
+    print(f"軌跡抽出完了: 訓練={len(train_trajectories)}, テスト={len(test_trajectories)}")
+    print(f"  継続率（訓練）: {sum(1 for t in train_trajectories if t['continued']) / len(train_trajectories):.1%}")
+    print(f"  継続率（テスト）: {sum(1 for t in test_trajectories if t['continued']) / len(test_trajectories):.1%}")
+
+    return train_trajectories, test_trajectories
+
+
 def load_and_prepare_data(
     reviews_path: str,
     snapshot_date: str,
@@ -71,11 +162,16 @@ def load_and_prepare_data(
     print(f"History: {history_months} months, Target: {target_months} months")
     print(f"{'='*60}")
 
-    # Use IRL system's data loading mechanism
-    irl_system = RetentionIRLSystem({})
-
-    # Load trajectories using the same method as IRL
+    # Load CSV data
     df = pd.read_csv(reviews_path)
+
+    # Detect date column
+    date_col = 'request_time' if 'request_time' in df.columns else 'created'
+    df[date_col] = pd.to_datetime(df[date_col])
+    df = df.sort_values(date_col).reset_index(drop=True)
+
+    # Detect reviewer column
+    reviewer_col = 'reviewer_email' if 'reviewer_email' in df.columns else 'email'
 
     # Convert snapshot date
     snapshot_dt = pd.to_datetime(snapshot_date)
@@ -86,12 +182,13 @@ def load_and_prepare_data(
     print(f"Target period: {snapshot_dt} to {target_end}")
 
     # Extract trajectories
-    train_trajectories, test_trajectories = irl_system.extract_trajectories_from_reviews(
+    train_trajectories, test_trajectories = extract_trajectories_with_window(
         df,
         snapshot_date=snapshot_dt,
         history_months=history_months,
         target_months=target_months,
-        train_ratio=0.8
+        reviewer_col=reviewer_col,
+        date_col=date_col
     )
 
     print(f"\nTrajectories extracted:")

@@ -126,7 +126,9 @@ def extract_static_features(trajectory_data: List[Dict[str, Any]]) -> Tuple[np.n
             if len(history) > 1:
                 timestamps = [a.get('timestamp', 0) for a in history]
                 gaps = np.diff(sorted(timestamps))
-                consistency = 1.0 / (np.std(gaps) + 1e-6) if len(gaps) > 0 else 0.0
+                # Timedelta を秒数に変換
+                gaps_seconds = np.array([gap.total_seconds() if hasattr(gap, 'total_seconds') else gap for gap in gaps])
+                consistency = 1.0 / (np.std(gaps_seconds) + 1e-6) if len(gaps_seconds) > 0 else 0.0
                 feat.append(consistency)
             else:
                 feat.append(0.0)
