@@ -1,0 +1,8 @@
+if 交通信号　=　青 then
+else
+    if 交通信号 = 黄 then 
+        速度 = 速度 * 1.2
+    else
+        速度 = 0
+    end if
+end if

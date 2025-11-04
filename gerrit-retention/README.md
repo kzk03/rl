@@ -41,6 +41,7 @@ uv run python scripts/training/irl/train_temporal_irl_sliding_window.py \
 - **時系列IRL学習**: LSTMで開発者の活動軌跡を時系列的に学習し、継続/離脱を予測
 - **スライディングウィンドウ評価**: 複数の学習期間×予測期間で最適な設定を自動探索
 - **プロジェクト別予測**: 同一プロジェクト内での継続を正確に判定
+- **ベースライン比較**: ロジスティック回帰、ランダムフォレストとの性能比較
 - **データ前処理**: ボットアカウント除外（44%ノイズ削減）、プロジェクトフィルタリング
 - **分析・可視化**: 特徴量重要度、精度マトリクス、カバレッジ分析
 
@@ -49,21 +50,27 @@ uv run python scripts/training/irl/train_temporal_irl_sliding_window.py \
 ```
 gerrit-retention/
 ├── src/gerrit_retention/          # コアシステム
-│   └── rl_prediction/
-│       └── retention_irl_system.py  # ★ 時系列IRLシステム（メイン）
+│   ├── rl_prediction/
+│   │   └── retention_irl_system.py  # ★ 時系列IRLシステム（メイン）
+│   └── baselines/                   # ベースラインモデル
+│       ├── logistic_regression.py   # ロジスティック回帰
+│       └── random_forest.py         # ランダムフォレスト
 │
 ├── scripts/                        # 実行スクリプト
 │   ├── preprocessing/              # データ前処理
 │   │   ├── filter_bot_accounts.py
 │   │   └── filter_by_project.py
-│   └── training/irl/
-│       └── train_temporal_irl_sliding_window.py  # ★ スライディング評価
+│   ├── training/irl/
+│   │   └── train_temporal_irl_sliding_window.py  # ★ スライディング評価
+│   └── experiments/                # ★ ベースライン比較実験
+│       └── run_baseline_comparison.py
 │
 ├── data/                           # データディレクトリ
 │   └── review_requests_openstack_multi_5y_detail.csv  # メインデータ
 │
 ├── importants/                     # 重要な実験結果
-│   └── irl_openstack_real/         # 主要実験（16モデル、評価結果）
+│   ├── irl_openstack_real/         # 主要IRL実験（16モデル、評価結果）
+│   └── baseline_experiments/       # ★ ベースライン比較結果
 │
 ├── docs/                           # ドキュメント（整理済み）
 │   ├── experiment_results/         # 実験結果レポート
@@ -138,6 +145,32 @@ uv run python scripts/training/irl/train_temporal_irl_sliding_window.py \
   --output importants/irl_my_experiment
 ```
 
+### ベースライン比較実験
+
+```bash
+# ロジスティック回帰とランダムフォレストで性能比較
+uv run python scripts/experiments/run_baseline_comparison.py \
+  --reviews data/review_requests_no_bots.csv \
+  --snapshot-date 2020-01-01 \
+  --history-months 12 \
+  --target-months 6 \
+  --baselines logistic_regression random_forest \
+  --output importants/baseline_experiments/
+
+# ロジスティック回帰のみ
+uv run python scripts/experiments/run_baseline_comparison.py \
+  --reviews data/review_requests_no_bots.csv \
+  --snapshot-date 2020-01-01 \
+  --history-months 12 \
+  --target-months 6 \
+  --baselines logistic_regression \
+  --output importants/baseline_experiments/logistic_regression/
+```
+
+**利用可能なベースライン**:
+- `logistic_regression`: 線形モデル、解釈性が高い
+- `random_forest`: 非線形アンサンブルモデル、ロバスト性が高い
+
 ### モデルの利用
 
 ```python
@@ -156,6 +189,24 @@ result = model.predict_continuation_probability(
 )
 
 print(f"継続確率: {result['continuation_probability']:.1%}")
+```
+
+### ベースラインモデルの利用
+
+```python
+from gerrit_retention.baselines import LogisticRegressionBaseline, RandomForestBaseline
+
+# ロジスティック回帰
+lr = LogisticRegressionBaseline()
+lr.train({'features': X_train, 'labels': y_train, 'feature_names': feature_names})
+predictions = lr.predict({'features': X_test})
+importance = lr.get_feature_importance()
+
+# ランダムフォレスト
+rf = RandomForestBaseline()
+rf.train({'features': X_train, 'labels': y_train, 'feature_names': feature_names})
+predictions = rf.predict({'features': X_test})
+importance = rf.get_feature_importance()
 ```
 
 ## ライセンス
