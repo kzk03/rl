@@ -1,0 +1,27 @@
+[
+  {
+    "status": "ok",
+    "experiment": "custom_001_hd128_lr5e-05_do0.20_seq0_temp0.45",
+    "metrics": {
+      "auc_roc": 0.7163299663299664,
+      "auc_pr": 0.5591684215292956,
+      "precision": 0.4827586206896552,
+      "recall": 0.6363636363636364,
+      "f1_score": 0.5490196078431373,
+      "optimal_threshold": 0.48314122213066485,
+      "eval_optimal_threshold": 0.48091781446554394,
+      "eval_optimal_f1": 0.6037735848571022,
+      "positive_count": 22,
+      "negative_count": 54,
+      "total_count": 76,
+      "prediction_stats": {
+        "min": 0.4672685913511141,
+        "max": 0.5230014587155558,
+        "mean": 0.48278065404654424,
+        "std": 0.013551957064413601,
+        "median": 0.47773022094095663
+      }
+    },
+    "summary_path": "/Users/kazuki-h/rl/gerrit-retention/analysis/irl_only_experiments/experiments/custom_001_hd128_lr5e-05_do0.20_seq0_temp0.45/summary.json"
+  }
+]

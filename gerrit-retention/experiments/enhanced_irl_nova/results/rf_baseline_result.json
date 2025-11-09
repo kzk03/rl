@@ -1,0 +1,17 @@
+{
+  "model": "RandomForest",
+  "project": "nova",
+  "seed": 42,
+  "cutoff_date": "2023-01-01",
+  "history_months": 6,
+  "eval_future_start": 6,
+  "eval_future_end": 9,
+  "train_samples": 230,
+  "eval_samples": 51,
+  "train_continuation_rate": 0.34782608695652173,
+  "eval_continuation_rate": 0.3137254901960784,
+  "train_auc": 0.9988333333333332,
+  "eval_auc": 0.713392857142857,
+  "n_estimators": 100,
+  "max_depth": 10
+}

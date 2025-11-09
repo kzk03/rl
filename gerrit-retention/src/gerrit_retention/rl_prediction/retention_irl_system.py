@@ -272,20 +272,20 @@ class RetentionIRLSystem:
         - 正例率が低い（<0.3）: alpha=0.25, gamma=1.5（Recall 重視）
         """
         if positive_rate >= 0.6:
-            # 正例が多い → 負例も重視（バランス）
-            alpha = 0.4
+            # 正例が多い区間ではほぼバランスに近い重み
+            alpha = 0.40
             gamma = 1.0
-            strategy = "バランス重視（正例率≥60%）"
+            strategy = "バランス重視（正例率≥60%・軽い正例優先)"
         elif positive_rate >= 0.3:
-            # 中程度 → 標準設定（gamma削減: 2.0 → 1.0）
-            alpha = 0.3
+            # 標準帯域では適度に正例へ重みを寄せ、precision低下を防ぐ
+            alpha = 0.45
             gamma = 1.0
-            strategy = "標準設定（正例率30-60%）"
+            strategy = "継続重視（正例率30-60%・適度な正例ウェイト)"
         else:
-            # 正例が非常に少ない → Recall 重視（gamma削減: 2.5 → 1.5）
-            alpha = 0.25
-            gamma = 1.5
-            strategy = "Recall 重視（正例率<30%）"
+            # 正例が希少な期間は追加で正例を持ち上げるがgammaは抑える
+            alpha = 0.55
+            gamma = 1.1
+            strategy = "継続重視（正例率<30%・正例ウェイト中)"
         
         self.set_focal_loss_params(alpha, gamma)
         logger.info(f"正例率 {positive_rate:.1%} に基づき自動調整: {strategy}")

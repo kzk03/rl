@@ -1,0 +1,717 @@
+{
+  "config": {
+    "reviews": "data/review_requests_nova.csv",
+    "train_start": "2021-01-01T00:00:00",
+    "train_end": "2023-01-01T00:00:00",
+    "eval_start": "2023-01-01T00:00:00",
+    "eval_end": "2024-01-01T00:00:00",
+    "min_history_events": 0,
+    "future_window_start": 0,
+    "future_window_end": 3,
+    "extended_label_months": 12,
+    "hidden_dim": 128,
+    "seq_len": 0,
+    "learning_rate": 5e-05,
+    "dropout": 0.2,
+    "output_temperature": 0.45,
+    "epochs": 70,
+    "focal_alpha": 0.5,
+    "focal_gamma": 1.0
+  },
+  "eval_quarters": [
+    {
+      "name": "0-3m",
+      "start": "2023-01-01T00:00:00",
+      "end": "2023-04-01T00:00:00",
+      "span_months": 3,
+      "n_trajectories": 48,
+      "positive_rate": 0.3541666666666667
+    },
+    {
+      "name": "3-6m",
+      "start": "2023-04-01T00:00:00",
+      "end": "2023-07-01T00:00:00",
+      "span_months": 3,
+      "n_trajectories": 39,
+      "positive_rate": 0.3333333333333333
+    },
+    {
+      "name": "6-9m",
+      "start": "2023-07-01T00:00:00",
+      "end": "2023-10-01T00:00:00",
+      "span_months": 3,
+      "n_trajectories": 38,
+      "positive_rate": 0.39473684210526316
+    },
+    {
+      "name": "9-12m",
+      "start": "2023-10-01T00:00:00",
+      "end": "2024-01-01T00:00:00",
+      "span_months": 3,
+      "n_trajectories": 41,
+      "positive_rate": 0.4146341463414634
+    }
+  ],
+  "matrix": {
+    "0-6m_0-3m": {
+      "train_label": "0-6m",
+      "eval_quarter": {
+        "name": "0-3m",
+        "start": "2023-01-01T00:00:00",
+        "end": "2023-04-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 48,
+        "positive_rate": 0.3541666666666667
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.7855787476280834,
+        "auc_pr": 0.5810089871681567,
+        "precision": 0.6923076923076923,
+        "recall": 0.5294117647058824,
+        "f1": 0.6,
+        "threshold": 0.44946428385481024,
+        "positive_rate": 0.3541666666666667,
+        "prediction_stats": {
+          "min": 0.41704904352050826,
+          "max": 0.4692212919880089,
+          "mean": 0.4414860558627823,
+          "std": 0.014069425302305563,
+          "median": 0.4406892994362856
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.4478174856024537,
+        "precision": 0.7333333333333333,
+        "recall": 0.6470588235294118,
+        "f1": 0.6874999999501953
+      },
+      "train_threshold": {
+        "threshold": 0.44946428385481024,
+        "precision": 0.7857142857142857,
+        "recall": 0.5789473684210527,
+        "f1": 0.6666666666178146
+      },
+      "n_eval": 48,
+      "positives": 17,
+      "negatives": 31
+    },
+    "0-6m_3-6m": {
+      "train_label": "0-6m",
+      "eval_quarter": {
+        "name": "3-6m",
+        "start": "2023-04-01T00:00:00",
+        "end": "2023-07-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 39,
+        "positive_rate": 0.3333333333333333
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.7869822485207101,
+        "auc_pr": 0.6371132410100022,
+        "precision": 0.7142857142857143,
+        "recall": 0.38461538461538464,
+        "f1": 0.5,
+        "threshold": 0.44946428385481024,
+        "positive_rate": 0.3333333333333333,
+        "prediction_stats": {
+          "min": 0.41635256402163057,
+          "max": 0.4650890222359842,
+          "mean": 0.4375687860656386,
+          "std": 0.012359508251108616,
+          "median": 0.4401908326157363
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.437816652687545,
+        "precision": 0.5454545454545454,
+        "recall": 0.9230769230769231,
+        "f1": 0.6857142856675917
+      },
+      "train_threshold": {
+        "threshold": 0.44946428385481024,
+        "precision": 0.7857142857142857,
+        "recall": 0.5789473684210527,
+        "f1": 0.6666666666178146
+      },
+      "n_eval": 39,
+      "positives": 13,
+      "negatives": 26
+    },
+    "0-6m_6-9m": {
+      "train_label": "0-6m",
+      "eval_quarter": {
+        "name": "6-9m",
+        "start": "2023-07-01T00:00:00",
+        "end": "2023-10-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 38,
+        "positive_rate": 0.39473684210526316
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.8666666666666667,
+        "auc_pr": 0.8094335593600299,
+        "precision": 0.8333333333333334,
+        "recall": 0.3333333333333333,
+        "f1": 0.47619047619047616,
+        "threshold": 0.44946428385481024,
+        "positive_rate": 0.39473684210526316,
+        "prediction_stats": {
+          "min": 0.4166579333243121,
+          "max": 0.46732079841137075,
+          "mean": 0.4395742770716322,
+          "std": 0.012179989034757657,
+          "median": 0.44211527311239446
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.44283902621159366,
+        "precision": 0.7647058823529411,
+        "recall": 0.8666666666666667,
+        "f1": 0.8124999999501953
+      },
+      "train_threshold": {
+        "threshold": 0.44946428385481024,
+        "precision": 0.7857142857142857,
+        "recall": 0.5789473684210527,
+        "f1": 0.6666666666178146
+      },
+      "n_eval": 38,
+      "positives": 15,
+      "negatives": 23
+    },
+    "0-6m_9-12m": {
+      "train_label": "0-6m",
+      "eval_quarter": {
+        "name": "9-12m",
+        "start": "2023-10-01T00:00:00",
+        "end": "2024-01-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 41,
+        "positive_rate": 0.4146341463414634
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.7487745098039216,
+        "auc_pr": 0.7366188795117952,
+        "precision": 0.875,
+        "recall": 0.4117647058823529,
+        "f1": 0.56,
+        "threshold": 0.44946428385481024,
+        "positive_rate": 0.4146341463414634,
+        "prediction_stats": {
+          "min": 0.41595079247883227,
+          "max": 0.4810012306033651,
+          "mean": 0.4402283855226233,
+          "std": 0.015034602687980288,
+          "median": 0.4409768645002161
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.4409768645002161,
+        "precision": 0.6190476190476191,
+        "recall": 0.7647058823529411,
+        "f1": 0.6842105262663435
+      },
+      "train_threshold": {
+        "threshold": 0.44946428385481024,
+        "precision": 0.7857142857142857,
+        "recall": 0.5789473684210527,
+        "f1": 0.6666666666178146
+      },
+      "n_eval": 41,
+      "positives": 17,
+      "negatives": 24
+    },
+    "6-12m_0-3m": {
+      "train_label": "6-12m",
+      "eval_quarter": {
+        "name": "0-3m",
+        "start": "2023-01-01T00:00:00",
+        "end": "2023-04-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 48,
+        "positive_rate": 0.3541666666666667
+      },
+      "status": "skipped_past_window"
+    },
+    "6-12m_3-6m": {
+      "train_label": "6-12m",
+      "eval_quarter": {
+        "name": "3-6m",
+        "start": "2023-04-01T00:00:00",
+        "end": "2023-07-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 39,
+        "positive_rate": 0.3333333333333333
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.591715976331361,
+        "auc_pr": 0.4109782690427852,
+        "precision": 0.25,
+        "recall": 0.15384615384615385,
+        "f1": 0.19047619047619047,
+        "threshold": 0.4548150769195956,
+        "positive_rate": 0.3333333333333333,
+        "prediction_stats": {
+          "min": 0.3631655994524049,
+          "max": 0.46835370350370326,
+          "mean": 0.4330744106704921,
+          "std": 0.0247763772094088,
+          "median": 0.43654443684203026
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.4447267340332664,
+        "precision": 0.5333333333333333,
+        "recall": 0.6153846153846154,
+        "f1": 0.5714285713788265
+      },
+      "train_threshold": {
+        "threshold": 0.4548150769195956,
+        "precision": 0.4864864864864865,
+        "recall": 0.782608695652174,
+        "f1": 0.5999999999527222
+      },
+      "n_eval": 39,
+      "positives": 13,
+      "negatives": 26
+    },
+    "6-12m_6-9m": {
+      "train_label": "6-12m",
+      "eval_quarter": {
+        "name": "6-9m",
+        "start": "2023-07-01T00:00:00",
+        "end": "2023-10-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 38,
+        "positive_rate": 0.39473684210526316
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.6521739130434783,
+        "auc_pr": 0.5128609184523164,
+        "precision": 0.4444444444444444,
+        "recall": 0.26666666666666666,
+        "f1": 0.3333333333333333,
+        "threshold": 0.4548150769195956,
+        "positive_rate": 0.39473684210526316,
+        "prediction_stats": {
+          "min": 0.3772691780965,
+          "max": 0.4749346689404998,
+          "mean": 0.44040062376573413,
+          "std": 0.022532102242368884,
+          "median": 0.4433228924528515
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.4241141829547328,
+        "precision": 0.4838709677419355,
+        "recall": 1.0,
+        "f1": 0.6521739129995274
+      },
+      "train_threshold": {
+        "threshold": 0.4548150769195956,
+        "precision": 0.4864864864864865,
+        "recall": 0.782608695652174,
+        "f1": 0.5999999999527222
+      },
+      "n_eval": 38,
+      "positives": 15,
+      "negatives": 23
+    },
+    "6-12m_9-12m": {
+      "train_label": "6-12m",
+      "eval_quarter": {
+        "name": "9-12m",
+        "start": "2023-10-01T00:00:00",
+        "end": "2024-01-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 41,
+        "positive_rate": 0.4146341463414634
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.5232843137254902,
+        "auc_pr": 0.4397906673073738,
+        "precision": 0.375,
+        "recall": 0.17647058823529413,
+        "f1": 0.24,
+        "threshold": 0.4548150769195956,
+        "positive_rate": 0.4146341463414634,
+        "prediction_stats": {
+          "min": 0.3723475962705409,
+          "max": 0.4736133153491694,
+          "mean": 0.43366572236594525,
+          "std": 0.02508673181241097,
+          "median": 0.4321021904927748
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.41783313281412227,
+        "precision": 0.4838709677419355,
+        "recall": 0.8823529411764706,
+        "f1": 0.6249999999542535
+      },
+      "train_threshold": {
+        "threshold": 0.4548150769195956,
+        "precision": 0.4864864864864865,
+        "recall": 0.782608695652174,
+        "f1": 0.5999999999527222
+      },
+      "n_eval": 41,
+      "positives": 17,
+      "negatives": 24
+    },
+    "12-18m_0-3m": {
+      "train_label": "12-18m",
+      "eval_quarter": {
+        "name": "0-3m",
+        "start": "2023-01-01T00:00:00",
+        "end": "2023-04-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 48,
+        "positive_rate": 0.3541666666666667
+      },
+      "status": "skipped_past_window"
+    },
+    "12-18m_3-6m": {
+      "train_label": "12-18m",
+      "eval_quarter": {
+        "name": "3-6m",
+        "start": "2023-04-01T00:00:00",
+        "end": "2023-07-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 39,
+        "positive_rate": 0.3333333333333333
+      },
+      "status": "skipped_past_window"
+    },
+    "12-18m_6-9m": {
+      "train_label": "12-18m",
+      "eval_quarter": {
+        "name": "6-9m",
+        "start": "2023-07-01T00:00:00",
+        "end": "2023-10-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 38,
+        "positive_rate": 0.39473684210526316
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.40869565217391307,
+        "auc_pr": 0.38867233458885003,
+        "precision": 0.39473684210526316,
+        "recall": 1.0,
+        "f1": 0.5660377358490566,
+        "threshold": 0.38023901385947284,
+        "positive_rate": 0.39473684210526316,
+        "prediction_stats": {
+          "min": 0.4042932507013816,
+          "max": 0.47877979034746776,
+          "mean": 0.4348760346062574,
+          "std": 0.012375125442136205,
+          "median": 0.4373272736344912
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.4042932507013816,
+        "precision": 0.39473684210526316,
+        "recall": 1.0,
+        "f1": 0.5660377358084727
+      },
+      "train_threshold": {
+        "threshold": 0.38023901385947284,
+        "precision": 0.4074074074074074,
+        "recall": 1.0,
+        "f1": 0.5789473683799169
+      },
+      "n_eval": 38,
+      "positives": 15,
+      "negatives": 23
+    },
+    "12-18m_9-12m": {
+      "train_label": "12-18m",
+      "eval_quarter": {
+        "name": "9-12m",
+        "start": "2023-10-01T00:00:00",
+        "end": "2024-01-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 41,
+        "positive_rate": 0.4146341463414634
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.45710784313725494,
+        "auc_pr": 0.4050911420480855,
+        "precision": 0.4146341463414634,
+        "recall": 1.0,
+        "f1": 0.5862068965517241,
+        "threshold": 0.38023901385947284,
+        "positive_rate": 0.4146341463414634,
+        "prediction_stats": {
+          "min": 0.38404144762762205,
+          "max": 0.4701384257309904,
+          "mean": 0.43145554585029533,
+          "std": 0.014314684387445153,
+          "median": 0.43571103919960325
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.38404144762762205,
+        "precision": 0.4146341463414634,
+        "recall": 1.0,
+        "f1": 0.5862068965102853
+      },
+      "train_threshold": {
+        "threshold": 0.38023901385947284,
+        "precision": 0.4074074074074074,
+        "recall": 1.0,
+        "f1": 0.5789473683799169
+      },
+      "n_eval": 41,
+      "positives": 17,
+      "negatives": 24
+    },
+    "18-24m_0-3m": {
+      "train_label": "18-24m",
+      "eval_quarter": {
+        "name": "0-3m",
+        "start": "2023-01-01T00:00:00",
+        "end": "2023-04-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 48,
+        "positive_rate": 0.3541666666666667
+      },
+      "status": "skipped_past_window"
+    },
+    "18-24m_3-6m": {
+      "train_label": "18-24m",
+      "eval_quarter": {
+        "name": "3-6m",
+        "start": "2023-04-01T00:00:00",
+        "end": "2023-07-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 39,
+        "positive_rate": 0.3333333333333333
+      },
+      "status": "skipped_past_window"
+    },
+    "18-24m_6-9m": {
+      "train_label": "18-24m",
+      "eval_quarter": {
+        "name": "6-9m",
+        "start": "2023-07-01T00:00:00",
+        "end": "2023-10-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 38,
+        "positive_rate": 0.39473684210526316
+      },
+      "status": "skipped_past_window"
+    },
+    "18-24m_9-12m": {
+      "train_label": "18-24m",
+      "eval_quarter": {
+        "name": "9-12m",
+        "start": "2023-10-01T00:00:00",
+        "end": "2024-01-01T00:00:00",
+        "span_months": 3,
+        "n_trajectories": 41,
+        "positive_rate": 0.4146341463414634
+      },
+      "status": "evaluated",
+      "metrics": {
+        "auc_roc": 0.45710784313725494,
+        "auc_pr": 0.45622878342684736,
+        "precision": 0.42105263157894735,
+        "recall": 0.9411764705882353,
+        "f1": 0.5818181818181818,
+        "threshold": 0.5772860747572284,
+        "positive_rate": 0.4146341463414634,
+        "prediction_stats": {
+          "min": 0.5742000248153757,
+          "max": 0.62621321790199,
+          "mean": 0.5932612723668288,
+          "std": 0.01214993608148439,
+          "median": 0.5923111588782443
+        }
+      },
+      "eval_threshold": {
+        "threshold": 0.574302040272789,
+        "precision": 0.425,
+        "recall": 1.0,
+        "f1": 0.5964912280283163
+      },
+      "train_threshold": {
+        "threshold": 0.5772860747572284,
+        "precision": 0.41304347826086957,
+        "recall": 0.95,
+        "f1": 0.5757575757153351
+      },
+      "n_eval": 41,
+      "positives": 17,
+      "negatives": 24
+    }
+  },
+  "metrics": {
+    "auc_roc": [
+      [
+        0.7855787476280834,
+        0.7869822485207101,
+        0.8666666666666667,
+        0.7487745098039216
+      ],
+      [
+        null,
+        0.591715976331361,
+        0.6521739130434783,
+        0.5232843137254902
+      ],
+      [
+        null,
+        null,
+        0.40869565217391307,
+        0.45710784313725494
+      ],
+      [
+        null,
+        null,
+        null,
+        0.45710784313725494
+      ]
+    ],
+    "auc_pr": [
+      [
+        0.5810089871681567,
+        0.6371132410100022,
+        0.8094335593600299,
+        0.7366188795117952
+      ],
+      [
+        null,
+        0.4109782690427852,
+        0.5128609184523164,
+        0.4397906673073738
+      ],
+      [
+        null,
+        null,
+        0.38867233458885003,
+        0.4050911420480855
+      ],
+      [
+        null,
+        null,
+        null,
+        0.45622878342684736
+      ]
+    ],
+    "f1": [
+      [
+        0.6,
+        0.5,
+        0.47619047619047616,
+        0.56
+      ],
+      [
+        null,
+        0.19047619047619047,
+        0.3333333333333333,
+        0.24
+      ],
+      [
+        null,
+        null,
+        0.5660377358490566,
+        0.5862068965517241
+      ],
+      [
+        null,
+        null,
+        null,
+        0.5818181818181818
+      ]
+    ],
+    "precision": [
+      [
+        0.6923076923076923,
+        0.7142857142857143,
+        0.8333333333333334,
+        0.875
+      ],
+      [
+        null,
+        0.25,
+        0.4444444444444444,
+        0.375
+      ],
+      [
+        null,
+        null,
+        0.39473684210526316,
+        0.4146341463414634
+      ],
+      [
+        null,
+        null,
+        null,
+        0.42105263157894735
+      ]
+    ],
+    "recall": [
+      [
+        0.5294117647058824,
+        0.38461538461538464,
+        0.3333333333333333,
+        0.4117647058823529
+      ],
+      [
+        null,
+        0.15384615384615385,
+        0.26666666666666666,
+        0.17647058823529413
+      ],
+      [
+        null,
+        null,
+        1.0,
+        1.0
+      ],
+      [
+        null,
+        null,
+        null,
+        0.9411764705882353
+      ]
+    ]
+  },
+  "valid_mask": [
+    [
+      1,
+      1,
+      1,
+      1
+    ],
+    [
+      0,
+      1,
+      1,
+      1
+    ],
+    [
+      0,
+      0,
+      1,
+      1
+    ],
+    [
+      0,
+      0,
+      0,
+      1
+    ]
+  ]
+}

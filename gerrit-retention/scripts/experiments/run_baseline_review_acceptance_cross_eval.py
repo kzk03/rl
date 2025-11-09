@@ -21,21 +21,22 @@ Usage:
 """
 
 import argparse
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from datetime import datetime
 import json
 import time
-from typing import Dict, List, Any, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
 
 # Import baseline models
 from gerrit_retention.baselines import (
     LogisticRegressionBaseline,
     RandomForestBaseline,
-    extract_static_features,
     evaluate_predictions,
-    format_duration
+    extract_static_features,
+    format_duration,
 )
 
 
@@ -190,7 +191,8 @@ def run_cross_evaluation(
     baseline_name: str,
     train_quarters: List[pd.DataFrame],
     eval_quarters: List[pd.DataFrame],
-    output_dir: Path
+    output_dir: Path,
+    min_history_requests: int
 ) -> Dict[str, Any]:
     """
     Run cross-evaluation: train on each quarter, evaluate on each quarter.
@@ -230,7 +232,7 @@ def run_cross_evaluation(
 
             # Extract trajectories
             trajectories = extract_review_acceptance_trajectories(
-                train_quarter, eval_quarter
+                train_quarter, eval_quarter, min_history_requests=min_history_requests
             )
 
             if len(trajectories) == 0:
@@ -445,6 +447,18 @@ def main():
         default='importants/review_acceptance_cross_eval_nova/',
         help='Path to IRL results for comparison'
     )
+    parser.add_argument(
+        '--min-history-events',
+        type=int,
+        default=3,
+        help='Minimum review requests in history to include a reviewer'
+    )
+    parser.add_argument(
+        '--irl-summary',
+        type=Path,
+        default=Path('analysis/irl_only_experiments/experiments/latest_run_summary.json'),
+        help='Path to IRL latest_run_summary.json for metric comparison'
+    )
 
     args = parser.parse_args()
 
@@ -485,13 +499,30 @@ def main():
     # Run cross-evaluation for each baseline
     all_results = {}
 
+    irl_summary_metrics: Dict[str, float] | None = None
+
+    if args.irl_summary.exists():
+        try:
+            with args.irl_summary.open() as f:
+                irl_entries = json.load(f)
+            if isinstance(irl_entries, list) and irl_entries:
+                irl_metrics = irl_entries[0].get('metrics', {})
+                irl_summary_metrics = {
+                    'auc_roc': irl_metrics.get('auc_roc'),
+                    'auc_pr': irl_metrics.get('auc_pr'),
+                    'f1_score': irl_metrics.get('f1_score'),
+                }
+        except Exception as exc:
+            print(f"\nWarning: failed to load IRL summary at {args.irl_summary}: {exc}")
+
     for baseline_name in args.baselines:
         try:
             results = run_cross_evaluation(
                 baseline_name,
                 train_quarters,
                 eval_quarters,
-                Path(args.output)
+                Path(args.output),
+                min_history_requests=args.min_history_events
             )
 
             save_cross_eval_results(
@@ -511,6 +542,39 @@ def main():
     # Print comparison with IRL
     if Path(args.irl_results).exists():
         print_comparison_summary(all_results, Path(args.irl_results))
+
+    if irl_summary_metrics is not None and all_results:
+        # Collect baseline aggregate metrics
+        comparison_rows = []
+        for baseline_name, results in all_results.items():
+            auc_roc_matrix = results['metrics']['auc_roc']
+            auc_pr_matrix = results['metrics']['auc_pr']
+            f1_matrix = results['metrics']['f1']
+
+            auc_roc_values = auc_roc_matrix[auc_roc_matrix > 0]
+            auc_pr_values = auc_pr_matrix[auc_pr_matrix > 0]
+            f1_values = f1_matrix[f1_matrix > 0]
+
+            if len(auc_roc_values) == 0:
+                continue
+
+            comparison_rows.append({
+                'model': f'Baseline ({baseline_name})',
+                'auc_roc': float(np.mean(auc_roc_values)),
+                'auc_pr': float(np.mean(auc_pr_values)) if len(auc_pr_values) else float('nan'),
+                'f1': float(np.mean(f1_values)) if len(f1_values) else float('nan'),
+            })
+
+        comparison_rows.insert(0, {
+            'model': 'IRL (latest run)',
+            'auc_roc': irl_summary_metrics.get('auc_roc'),
+            'auc_pr': irl_summary_metrics.get('auc_pr'),
+            'f1': irl_summary_metrics.get('f1_score'),
+        })
+
+        table_df = pd.DataFrame(comparison_rows)
+        print("\nSimplified comparison (mean metrics across non-empty cells):")
+        print(table_df.to_string(index=False, float_format=lambda x: f"{x:.3f}" if pd.notna(x) else "nan"))
 
     print(f"\n{'='*70}")
     print(f"Cross-evaluation completed!")
