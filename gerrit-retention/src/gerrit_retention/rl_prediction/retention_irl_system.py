@@ -1159,8 +1159,8 @@ class RetentionIRLSystem:
         if state.collaboration_score > 0.5:
             reasoning_parts.append("高い協力度により継続確率が向上")
         
-        # 最近の行動
-        if action.quality > 0.7:
+        # 最近の行動（属性チェック）
+        if hasattr(action, 'quality') and action.quality > 0.7:
             reasoning_parts.append("高品質な最近の行動により継続確率が向上")
         
         # 報酬スコア

@@ -1,0 +1,16 @@
+{
+  "model": "Enhanced_IRL",
+  "project": "nova",
+  "seed": 42,
+  "train_start": "2021-01-01",
+  "train_end": "2023-01-01",
+  "eval_start": "2023-01-01",
+  "eval_months": 3,
+  "future_window_months": 6,
+  "train_trajectories": 4029,
+  "eval_samples": 66,
+  "train_continuation_rate": 0.1568627450980392,
+  "eval_continuation_rate": 0.2878787878787879,
+  "best_auc": 0.9697648376259799,
+  "final_auc": 0.9686450167973124
+}
