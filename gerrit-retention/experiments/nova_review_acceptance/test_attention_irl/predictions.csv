@@ -1,0 +1,4 @@
+reviewer_email,predicted_prob,true_label,history_request_count,history_acceptance_rate,eval_request_count,eval_accepted_count,eval_rejected_count,predicted_binary
+kvmpower@linux.vnet.ibm.com,0.4862716495990753,0,4,0.0,3,0,3,1
+nova_hyperv_ci@cloudbasesolutions.com,0.4862716495990753,0,4,0.0,2,0,2,1
+openstack@lightbitslabs.com,0.4865943491458893,0,3,0.0,1,0,1,1

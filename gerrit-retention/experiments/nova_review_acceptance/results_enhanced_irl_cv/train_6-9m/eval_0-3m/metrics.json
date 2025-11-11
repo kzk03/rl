@@ -1,0 +1,21 @@
+{
+  "auc_roc": 0.59375,
+  "auc_pr": 0.46298501433910805,
+  "threshold": 0.22196268141269684,
+  "threshold_method": "k-fold-cv",
+  "cv_folds": 5,
+  "cv_threshold_std": 0.023050167754213938,
+  "fold_thresholds": [
+    0.21691997349262238,
+    0.20149953663349152,
+    0.22392001748085022,
+    0.2026621550321579,
+    0.2648117244243622
+  ],
+  "precision": 0.45454545454545453,
+  "recall": 1.0,
+  "f1_score": 0.625,
+  "positive_count": 20,
+  "negative_count": 24,
+  "total_count": 44
+}

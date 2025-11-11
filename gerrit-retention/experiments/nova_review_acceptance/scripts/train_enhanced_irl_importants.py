@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import torch
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.model_selection import KFold
 
 # ランダムシード固定
 RANDOM_SEED = 777
@@ -114,6 +115,20 @@ def prepare_trajectories_importants_style(
             if future_start >= train_end:
                 continue
             
+            # この月時点までの活動履歴（特徴量計算期間内）
+            month_history = reviewer_history[reviewer_history[date_col] < month_end]
+            monthly_activities = []
+            for _, row in month_history.iterrows():
+                activity = {
+                    'timestamp': row[date_col],
+                    'action_type': 'review',
+                    'project': row.get('project', 'unknown'),
+                    'request_time': row.get('request_time', row[date_col]),
+                    'response_time': row.get('first_response_time'),
+                    'accepted': row.get(label_col, 0) == 1,
+                }
+                monthly_activities.append(activity)
+            
             # 将来期間のレビュー依頼（train_end内）
             month_future_df = df[
                 (df[date_col] >= future_start) &
@@ -128,21 +143,8 @@ def prepare_trajectories_importants_style(
                 month_accepted = month_future_df[month_future_df[label_col] == 1]
                 month_label = 1 if len(month_accepted) > 0 else 0
             
+            # ラベルと履歴を同時に追加（長さを一致させる）
             step_labels.append(month_label)
-            
-            # この月時点までの活動履歴（特徴量計算期間内）
-            month_history = reviewer_history[reviewer_history[date_col] < month_end]
-            monthly_activities = []
-            for _, row in month_history.iterrows():
-                activity = {
-                    'timestamp': row[date_col],
-                    'action_type': 'review',
-                    'project': row.get('project', 'unknown'),
-                    'request_time': row.get('request_time', row[date_col]),
-                    'response_time': row.get('first_response_time'),
-                    'accepted': row.get(label_col, 0) == 1,
-                }
-                monthly_activities.append(activity)
             monthly_activity_histories.append(monthly_activities)
         
         # 軌跡が生成されなかった場合はスキップ
@@ -339,47 +341,100 @@ def train_enhanced_irl(
     logger.info(f"訓練軌跡: {len(train_trajectories)}")
     logger.info(f"評価軌跡: {len(eval_trajectories)}")
     
+    # ====================================================================
+    # K-Fold Cross-Validation による閾値決定（データリーク防止）
+    # ====================================================================
+    logger.info("=" * 80)
+    logger.info("K-Fold CV による閾値決定（K=5）")
+    logger.info("=" * 80)
+    
+    n_folds = 5
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=RANDOM_SEED)
+    fold_thresholds = []
+    
+    # 訓練軌跡をnumpy配列に変換（インデックス用）
+    train_traj_array = np.array(train_trajectories, dtype=object)
+    
+    for fold_idx, (train_idx, val_idx) in enumerate(kf.split(train_traj_array)):
+        logger.info(f"\n--- Fold {fold_idx + 1}/{n_folds} ---")
+        fold_train = train_traj_array[train_idx].tolist()
+        fold_val = train_traj_array[val_idx].tolist()
+        
+        logger.info(f"Fold訓練データ: {len(fold_train)}サンプル")
+        logger.info(f"Fold検証データ: {len(fold_val)}サンプル")
+        
+        # このFoldでモデルを訓練
+        fold_config = {
+            'state_dim': 10,
+            'action_dim': 4,
+            'hidden_dim': 128,
+            'sequence': True,
+            'seq_len': 10,
+            'dropout': 0.2,
+            'learning_rate': 0.001
+        }
+        fold_system = RetentionIRLSystem(fold_config)
+        
+        fold_system.train_irl_multi_step_labels(
+            expert_trajectories=fold_train,
+            epochs=epochs
+        )
+        
+        # 検証データで予測
+        val_probs = []
+        val_labels = []
+        
+        for traj in fold_val:
+            try:
+                result = fold_system.predict_continuation_probability(
+                    developer=traj['developer_info'],
+                    activity_history=traj['activity_history']
+                )
+                val_probs.append(result['continuation_probability'])
+                
+                if len(traj['step_labels']) > 0:
+                    val_labels.append(traj['step_labels'][-1])
+                else:
+                    val_labels.append(0)
+            except (AttributeError, RuntimeError) as e:
+                logger.warning(f"検証軌跡スキップ: {e}")
+                continue
+        
+        val_probs = np.array(val_probs)
+        val_labels = np.array(val_labels)
+        
+        # このFoldで最適閾値を決定
+        from sklearn.metrics import precision_recall_curve
+        if len(set(val_labels)) > 1 and len(val_probs) > 0:
+            precision, recall, thresholds = precision_recall_curve(val_labels, val_probs)
+            f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+            optimal_idx = np.argmax(f1_scores)
+            fold_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
+            fold_thresholds.append(fold_threshold)
+            logger.info(f"Fold {fold_idx + 1} 最適閾値: {fold_threshold:.4f}")
+        else:
+            logger.warning(f"Fold {fold_idx + 1}: ラベルが単一クラスまたはデータなし")
+    
+    # 全Foldの閾値を平均
+    if len(fold_thresholds) > 0:
+        optimal_threshold = np.mean(fold_thresholds)
+        threshold_std = np.std(fold_thresholds)
+        logger.info("=" * 80)
+        logger.info(f"CV閾値: {optimal_threshold:.4f} ± {threshold_std:.4f}")
+        logger.info(f"各Fold閾値: {[f'{t:.4f}' for t in fold_thresholds]}")
+        logger.info("=" * 80)
+    else:
+        optimal_threshold = 0.5
+        logger.warning("全Foldで閾値決定失敗 → デフォルト閾値=0.5")
+    
+    # ====================================================================
+    # 訓練データ全体で最終モデルを訓練
+    # ====================================================================
+    logger.info("\n訓練データ全体で最終モデル訓練...")
     training_results = system.train_irl_multi_step_labels(
         expert_trajectories=train_trajectories,
         epochs=epochs
     )
-    
-    # 訓練データで最適閾値を決定
-    logger.info("訓練データで最適閾値を決定...")
-    train_results = []
-    train_labels = []
-    
-    for traj in train_trajectories:
-        try:
-            result = system.predict_continuation_probability(
-                developer=traj['developer_info'],
-                activity_history=traj['activity_history']
-            )
-            train_results.append(result['continuation_probability'])
-            
-            # 最後のstep_labelを訓練ラベルとして使用
-            if len(traj['step_labels']) > 0:
-                train_labels.append(traj['step_labels'][-1])
-            else:
-                train_labels.append(0)
-        except (AttributeError, RuntimeError) as e:
-            logger.warning(f"訓練軌跡スキップ: {e}")
-            continue
-    
-    train_probs = np.array(train_results)
-    train_labels = np.array(train_labels)
-    
-    # 訓練データでF1最大の閾値を決定
-    from sklearn.metrics import precision_recall_curve
-    if len(set(train_labels)) > 1:
-        precision, recall, thresholds = precision_recall_curve(train_labels, train_probs)
-        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
-        optimal_idx = np.argmax(f1_scores)
-        optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
-        logger.info(f"最適閾値（訓練データ）: {optimal_threshold:.4f}")
-    else:
-        optimal_threshold = 0.5
-        logger.warning("訓練データのラベルが単一クラス → 閾値=0.5")
     
     # 評価データで性能測定（閾値は訓練データで決定済み）
     eval_results = []
@@ -429,6 +484,10 @@ def train_enhanced_irl(
         'auc_roc': float(auc_roc),
         'auc_pr': float(auc_pr),
         'threshold': float(optimal_threshold),
+        'threshold_method': 'k-fold-cv',
+        'cv_folds': n_folds if len(fold_thresholds) > 0 else 0,
+        'cv_threshold_std': float(threshold_std) if len(fold_thresholds) > 0 else 0.0,
+        'fold_thresholds': [float(t) for t in fold_thresholds] if len(fold_thresholds) > 0 else [],
         'precision': float(precision_val),
         'recall': float(recall_val),
         'f1_score': float(f1_val),
@@ -440,7 +499,7 @@ def train_enhanced_irl(
     logger.info(f"AUC-ROC: {auc_roc:.4f}")
     logger.info(f"AUC-PR: {auc_pr:.4f}")
     logger.info(f"F1: {f1_val:.4f}")
-    logger.info(f"閾値（訓練データで決定）: {optimal_threshold:.4f}")
+    logger.info(f"閾値（K-Fold CV）: {optimal_threshold:.4f}")
     
     # 保存
     if output_dir:
@@ -565,10 +624,11 @@ def main():
     parser.add_argument("--reviews", required=True, help="レビューデータCSV")
     parser.add_argument("--train-start", required=True, help="訓練開始日 (YYYY-MM-DD)")
     parser.add_argument("--train-end", required=True, help="訓練終了日 (YYYY-MM-DD)")
-    parser.add_argument("--eval-start", required=True, help="評価開始日 (YYYY-MM-DD)")
-    parser.add_argument("--eval-end", required=True, help="評価終了日 (YYYY-MM-DD)")
-    parser.add_argument("--future-window-start", type=int, required=True, help="Future Window開始(月)")
-    parser.add_argument("--future-window-end", type=int, required=True, help="Future Window終了(月)")
+    parser.add_argument("--eval-start", required=True, help="評価スナップショット日 (YYYY-MM-DD)")
+    parser.add_argument("--future-window-start", type=int, required=True, help="訓練Future Window開始(月)")
+    parser.add_argument("--future-window-end", type=int, required=True, help="訓練Future Window終了(月)")
+    parser.add_argument("--eval-future-window-start", type=int, default=None, help="評価Future Window開始(月、省略時は訓練と同じ)")
+    parser.add_argument("--eval-future-window-end", type=int, default=None, help="評価Future Window終了(月、省略時は訓練と同じ)")
     parser.add_argument("--epochs", type=int, default=50, help="訓練エポック数")
     parser.add_argument("--min-history-events", type=int, default=3, help="最小履歴イベント数")
     parser.add_argument("--output", required=True, help="出力ディレクトリ")
@@ -576,6 +636,10 @@ def main():
     parser.add_argument("--model", type=str, default=None, help="既存モデルのパス（評価のみの場合）")
 
     args = parser.parse_args()
+    
+    # 評価用Future Windowのデフォルト値設定
+    eval_fw_start = args.eval_future_window_start if args.eval_future_window_start is not None else args.future_window_start
+    eval_fw_end = args.eval_future_window_end if args.eval_future_window_end is not None else args.future_window_end
 
     # データ読み込み
     df = pd.read_csv(args.reviews)
@@ -584,7 +648,6 @@ def main():
     train_start = pd.to_datetime(args.train_start)
     train_end = pd.to_datetime(args.train_end)
     eval_start = pd.to_datetime(args.eval_start)
-    eval_end = pd.to_datetime(args.eval_end)
 
     output_dir = Path(args.output)
 
@@ -592,10 +655,10 @@ def main():
     if args.model:
         logger.info("既存モデルでスナップショット評価を実施")
 
-        # スナップショット評価データ準備
+        # スナップショット評価データ準備（評価用Future Window使用）
         eval_trajectories = prepare_snapshot_evaluation_trajectories(
             df, eval_start,
-            args.future_window_start, args.future_window_end,
+            eval_fw_start, eval_fw_end,
             args.min_history_events, args.project
         )
 
@@ -605,17 +668,17 @@ def main():
     else:
         logger.info("訓練と評価を実施")
 
-        # 訓練データ準備
+        # 訓練データ準備（訓練用Future Window使用）
         train_trajectories = prepare_trajectories_importants_style(
             df, train_start, train_end,
             args.future_window_start, args.future_window_end,
             args.min_history_events, args.project
         )
 
-        # 評価データ準備
-        eval_trajectories = prepare_trajectories_importants_style(
-            df, eval_start, eval_end,
-            args.future_window_start, args.future_window_end,
+        # 評価データ準備（スナップショット評価、評価用Future Window使用）
+        eval_trajectories = prepare_snapshot_evaluation_trajectories(
+            df, eval_start,  # スナップショット時点
+            eval_fw_start, eval_fw_end,  # 評価用Future Window
             args.min_history_events, args.project
         )
 

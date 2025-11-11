@@ -652,31 +652,75 @@ class RetentionIRLSystem:
                     # 軌跡から状態と行動を抽出
                     developer = trajectory.get('developer', trajectory.get('developer_info', {}))
                     activity_history = trajectory['activity_history']
+                    monthly_activity_histories = trajectory.get('monthly_activity_histories', None)
                     step_labels = trajectory.get('step_labels', [])
                     context_date = trajectory.get('context_date', datetime.now())
-                    seq_len_actual = trajectory.get('seq_len', len(step_labels))
                     
                     if not step_labels or not activity_history:
                         continue
                     
-                    # 状態と行動を抽出
-                    state = self.extract_developer_state(developer, activity_history, context_date)
-                    actions = self.extract_developer_actions(activity_history, context_date)
+                    # 実際のシーケンス長（step_labelsの長さを使用）
+                    seq_len_actual = len(step_labels)
                     
-                    if not actions:
+                    # monthly_activity_historiesがある場合はそれを使用
+                    if monthly_activity_histories is not None:
+                        if len(monthly_activity_histories) != seq_len_actual:
+                            logger.warning(f"長さ不一致: monthly_histories={len(monthly_activity_histories)}, step_labels={seq_len_actual}")
+                            continue
+                        
+                        # 各月の履歴から状態と行動を抽出
+                        state_sequence = []
+                        action_sequence = []
+                        
+                        for step_idx, monthly_history in enumerate(monthly_activity_histories):
+                            step_state = self.extract_developer_state(developer, monthly_history, context_date)
+                            step_actions = self.extract_developer_actions(monthly_history, context_date)
+                            
+                            if not step_actions:
+                                # 行動がない場合はデフォルト行動を使用
+                                step_action = DeveloperAction(
+                                    action_type='review',
+                                    intensity=0.0,
+                                    collaboration=0.0,
+                                    response_time=999.0,
+                                    review_size=0.0,
+                                    timestamp=context_date
+                                )
+                            else:
+                                # 最後の行動を使用
+                                step_action = step_actions[-1]
+                            
+                            state_sequence.append(self.state_to_tensor(step_state))
+                            action_sequence.append(self.action_to_tensor(step_action))
+                    
+                    else:
+                        # 従来の方法（activity_history全体から抽出）
+                        state = self.extract_developer_state(developer, activity_history, context_date)
+                        actions = self.extract_developer_actions(activity_history, context_date)
+                        
+                        if not actions:
+                            continue
+                        
+                        # actionsの長さがstep_labelsと一致しない場合はスキップ
+                        if len(actions) != seq_len_actual:
+                            logger.warning(f"長さ不一致: actions={len(actions)}, step_labels={seq_len_actual}")
+                            continue
+                        
+                        # 状態と行動のシーケンスを構築
+                        state_sequence = []
+                        action_sequence = []
+                        
+                        for step_idx in range(len(actions)):
+                            # このステップまでの履歴で状態を構築
+                            history_up_to_step = activity_history[:step_idx+1]
+                            step_state = self.extract_developer_state(developer, history_up_to_step, context_date)
+                            state_sequence.append(self.state_to_tensor(step_state))
+                            action_sequence.append(self.action_to_tensor(actions[step_idx]))
+                    
+                    # シーケンスの長さが一致しているか確認
+                    if len(state_sequence) != seq_len_actual or len(action_sequence) != seq_len_actual:
+                        logger.warning(f"シーケンス長不一致: state={len(state_sequence)}, action={len(action_sequence)}, labels={seq_len_actual}")
                         continue
-                    
-                    # 状態と行動のシーケンスを構築
-                    # 各ステップで状態を再構築（時系列学習のため）
-                    state_sequence = []
-                    action_sequence = []
-                    
-                    for step_idx in range(len(actions)):
-                        # このステップまでの履歴で状態を構築
-                        history_up_to_step = activity_history[:step_idx+1]
-                        step_state = self.extract_developer_state(developer, history_up_to_step, context_date)
-                        state_sequence.append(self.state_to_tensor(step_state))
-                        action_sequence.append(self.action_to_tensor(actions[step_idx]))
                     
                     # テンソルに変換 [1, seq_len, dim]
                     state_tensor = torch.stack(state_sequence).unsqueeze(0)  # [1, seq_len, state_dim]
@@ -684,6 +728,11 @@ class RetentionIRLSystem:
                     
                     # 実際の長さ
                     lengths = torch.tensor([seq_len_actual], dtype=torch.long, device=self.device)
+                    
+                    # lengthsがテンソルのサイズを超えないかチェック
+                    if seq_len_actual > state_tensor.size(1):
+                        logger.warning(f"長さエラー: seq_len={seq_len_actual} > tensor_size={state_tensor.size(1)}")
+                        continue
                     
                     # 全ステップで予測
                     predictions = self.network.forward_all_steps(

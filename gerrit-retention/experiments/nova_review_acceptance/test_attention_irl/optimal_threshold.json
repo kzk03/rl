@@ -1,0 +1,15 @@
+{
+  "threshold": 0.4862716495990753,
+  "precision": 0.0,
+  "recall": 1.0,
+  "f1": 0.0,
+  "positive_rate": 0.0,
+  "method": "f1_maximization_on_train_data",
+  "train_prediction_stats": {
+    "min": 0.4862716495990753,
+    "max": 0.4865943491458893,
+    "mean": 0.48637921611468,
+    "std": 0.00015212202522532018,
+    "median": 0.4862716495990753
+  }
+}

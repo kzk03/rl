@@ -1,0 +1,12 @@
+{
+  "temperature": 10.0,
+  "n_train": 88,
+  "n_val": 21,
+  "calibration_metrics": {
+    "temperature": 10.0,
+    "optimal_threshold_before": 0.9947232007980347,
+    "optimal_threshold_after": 0.6280626462829734,
+    "f1_at_0.5_before": 0.25,
+    "f1_at_0.5_after": 0.25
+  }
+}

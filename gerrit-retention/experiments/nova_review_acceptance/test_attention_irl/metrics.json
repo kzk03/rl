@@ -1,0 +1,21 @@
+{
+  "auc_roc": NaN,
+  "auc_pr": 0.5,
+  "optimal_threshold": 0.4862716495990753,
+  "threshold_source": "train_data",
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1_score": 0.0,
+  "positive_count": 0,
+  "negative_count": 3,
+  "total_count": 3,
+  "eval_optimal_threshold": 0.4862716495990753,
+  "eval_optimal_f1": 0.0,
+  "prediction_stats": {
+    "min": 0.4862716495990753,
+    "max": 0.4865943491458893,
+    "mean": 0.48637921611468,
+    "std": 0.00015212202522532018,
+    "median": 0.4862716495990753
+  }
+}
