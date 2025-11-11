@@ -7,11 +7,12 @@
 - 縦軸: 予測期間 (下から0-3m, 3-6m, 6-9m, 9-12m)
 - 無効な組み合わせはグレーアウト
 """
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from pathlib import Path
 
 # 日本語フォント設定
 plt.rcParams['font.sans-serif'] = ['Arial Unicode MS', 'DejaVu Sans']
@@ -38,27 +39,27 @@ rf_f1 = pd.read_csv(rf_dir / "matrix_F1_SCORE.csv", index_col=0)
 # 期間ラベル
 period_labels = ['0-3m', '3-6m', '6-9m', '9-12m']
 
+# データ変換: 左下を(train=0-3m, eval=0-3m)にする
+# 元データ: 行=train, 列=eval
+# 目標: 横軸=train(左から0-3m, 3-6m, 6-9m, 9-12m), 縦軸=eval(下から0-3m, 3-6m, 6-9m, 9-12m)
+# → 行を反転するだけ（flipud）
+irl_auc_roc_transposed = np.flipud(irl_auc_roc.values)
+rf_auc_roc_transposed = np.flipud(rf_auc_roc.values)
+irl_auc_pr_transposed = np.flipud(irl_auc_pr.values)
+rf_auc_pr_transposed = np.flipud(rf_auc_pr.values)
+irl_f1_transposed = np.flipud(irl_f1.values)
+rf_f1_transposed = np.flipud(rf_f1.values)
+
 # マスク作成: 訓練期間 > 評価期間 の組み合わせをマスク
-# 行: 評価期間（下から0-3m）, 列: 訓練期間
-# 有効: 訓練期間 ≤ 評価期間 (train_idx <= eval_idx)
-# mask[i, j] = True if j > i (訓練期間のインデックス > 評価期間のインデックス)
+# flipud後の座標系: 行0=9-12m(上), 行3=0-3m(下), 列0=0-3m(左), 列3=9-12m(右)
+# 有効: 訓練期間(列) ≤ 評価期間(行)
 mask = np.zeros((4, 4), dtype=bool)
-for i in range(4):  # 評価期間（行）
-    for j in range(4):  # 訓練期間（列）
-        if j > i:  # 訓練期間 > 評価期間の場合マスク（無効）
+for i in range(4):  # 行（評価期間、flipud後）
+    for j in range(4):  # 列（訓練期間）
+        eval_period_idx = 3 - i  # 実際の期間インデックス（0=0-3m, 3=9-12m）
+        train_period_idx = j
+        if train_period_idx > eval_period_idx:  # 訓練期間 > 評価期間の場合マスク
             mask[i, j] = True
-
-# データを転置: 元は[train, eval]だが、表示は[eval, train]にする
-# さらに、評価期間を下から上に並べるため、行を反転
-irl_auc_roc_transposed = np.flipud(irl_auc_roc.values.T)
-rf_auc_roc_transposed = np.flipud(rf_auc_roc.values.T)
-irl_auc_pr_transposed = np.flipud(irl_auc_pr.values.T)
-rf_auc_pr_transposed = np.flipud(rf_auc_pr.values.T)
-irl_f1_transposed = np.flipud(irl_f1.values.T)
-rf_f1_transposed = np.flipud(rf_f1.values.T)
-
-# マスクも反転
-mask = np.flipud(mask)
 
 print("=" * 80)
 print("実用的な10段階評価")
@@ -103,7 +104,7 @@ def create_masked_heatmap(ax, data, mask, title, cmap='RdYlGn', vmin=0.5, vmax=1
     ax.set_xlabel('Training Period', fontsize=14, fontweight='bold')
     ax.set_ylabel('Evaluation Period (Prediction Window)', fontsize=14, fontweight='bold')
     ax.set_xticklabels(period_labels, fontsize=12)
-    ax.set_yticklabels(period_labels, fontsize=12)
+    ax.set_yticklabels(period_labels[::-1], fontsize=12)
 
     # 平均値計算（有効セルのみ）
     valid_mean = np.nanmean(masked_data)
@@ -121,8 +122,9 @@ create_masked_heatmap(
     irl_auc_roc_transposed,
     mask,
     'Enhanced IRL (Attention)',
-    vmin=0.65,
-    vmax=0.90
+    cmap='Blues',
+    vmin=0.0,
+    vmax=1.0
 )
 
 create_masked_heatmap(
@@ -130,8 +132,9 @@ create_masked_heatmap(
     rf_auc_roc_transposed,
     mask,
     'Random Forest',
-    vmin=0.65,
-    vmax=0.90
+    cmap='Blues',
+    vmin=0.0,
+    vmax=1.0
 )
 
 plt.tight_layout()
@@ -148,8 +151,9 @@ create_masked_heatmap(
     irl_auc_pr_transposed,
     mask,
     'Enhanced IRL (Attention)',
-    vmin=0.60,
-    vmax=0.90
+    cmap='Blues',
+    vmin=0.0,
+    vmax=1.0
 )
 
 create_masked_heatmap(
@@ -157,8 +161,9 @@ create_masked_heatmap(
     rf_auc_pr_transposed,
     mask,
     'Random Forest',
-    vmin=0.60,
-    vmax=0.90
+    cmap='Blues',
+    vmin=0.0,
+    vmax=1.0
 )
 
 plt.tight_layout()
@@ -175,8 +180,9 @@ create_masked_heatmap(
     irl_f1_transposed,
     mask,
     'Enhanced IRL (Attention)',
-    vmin=0.60,
-    vmax=0.90
+    cmap='Blues',
+    vmin=0.0,
+    vmax=1.0
 )
 
 create_masked_heatmap(
@@ -184,8 +190,9 @@ create_masked_heatmap(
     rf_f1_transposed,
     mask,
     'Random Forest',
-    vmin=0.60,
-    vmax=0.90
+    cmap='Blues',
+    vmin=0.0,
+    vmax=1.0
 )
 
 plt.tight_layout()

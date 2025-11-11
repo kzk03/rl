@@ -1,11 +1,11 @@
 {
-  "auc_roc": 0.7642045454545455,
-  "auc_pr": 0.7584528926956778,
-  "optimal_threshold": 0.8356582522392273,
-  "precision": 0.7391304347826086,
-  "recall": 0.7727272727272727,
-  "f1_score": 0.7555555555555555,
-  "positive_count": 22,
-  "negative_count": 24,
-  "total_count": 46
+  "auc_roc": 0.8313725490196078,
+  "auc_pr": 0.7511066564595211,
+  "threshold": 0.9840606451034546,
+  "precision": 1.0,
+  "recall": 0.17647058823529413,
+  "f1_score": 0.3,
+  "positive_count": 17,
+  "negative_count": 30,
+  "total_count": 47
 }

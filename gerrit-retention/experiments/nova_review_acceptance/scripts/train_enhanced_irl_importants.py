@@ -46,11 +46,15 @@ def prepare_trajectories_importants_style(
     project: str = None
 ) -> List[Dict[str, Any]]:
     """
-    importantsと同じデータ準備方式
+    importantsと同じデータ準備方式（データリークなし版）
+    
+    重要：訓練期間を分割してデータリークを防止
+    - 特徴量計算期間: train_start ~ (train_end - future_window_end_months)
+    - ラベル計算期間: (train_end - future_window_end_months) ~ train_end
     
     各レビュワーについて:
-    - 訓練期間内の履歴から月次の軌跡を生成
-    - 各月末からfuture_window後の承諾有無をラベルとする
+    - 特徴量計算期間内の履歴から月次の軌跡を生成
+    - 各月末からfuture_window後の承諾有無をラベルとする（train_end内）
     """
     if project:
         df = df[df['project'] == project].copy()
@@ -61,29 +65,34 @@ def prepare_trajectories_importants_style(
     
     df[date_col] = pd.to_datetime(df[date_col])
     
-    # 訓練期間のデータ
-    train_df = df[(df[date_col] >= train_start) & (df[date_col] < train_end)]
-    reviewers = train_df[reviewer_col].unique()
+    # 特徴量計算期間の終了（ラベル期間の開始）
+    feature_end = train_end - pd.DateOffset(months=future_window_end_months)
+    
+    # 特徴量計算期間のデータ
+    feature_df = df[(df[date_col] >= train_start) & (df[date_col] < feature_end)]
+    reviewers = feature_df[reviewer_col].unique()
     
     trajectories = []
     skipped_min_requests = 0
     
-    logger.info(f"訓練期間: {train_start} ~ {train_end}")
+    logger.info(f"訓練期間全体: {train_start} ~ {train_end}")
+    logger.info(f"特徴量計算期間: {train_start} ~ {feature_end}")
+    logger.info(f"ラベル計算期間: {feature_end} ~ {train_end}")
     logger.info(f"Future Window: {future_window_start_months} ~ {future_window_end_months}ヶ月")
     logger.info(f"レビュワー候補: {len(reviewers)}")
     
     for reviewer in reviewers:
-        reviewer_history = train_df[train_df[reviewer_col] == reviewer]
+        reviewer_history = feature_df[feature_df[reviewer_col] == reviewer]
         
         # 最小依頼数チェック
         if len(reviewer_history) < min_history_requests:
             skipped_min_requests += 1
             continue
         
-        # 月次の軌跡生成
+        # 月次の軌跡生成（特徴量計算期間内のみ）
         history_months = pd.date_range(
             start=train_start,
-            end=train_end,
+            end=feature_end,  # 特徴量計算期間の終了まで
             freq='MS'  # 月初
         )
         
@@ -97,15 +106,15 @@ def prepare_trajectories_importants_style(
             future_start = month_end + pd.DateOffset(months=future_window_start_months)
             future_end = month_end + pd.DateOffset(months=future_window_end_months)
             
-            # train_endでクリップ（データリーク防止）
+            # train_endを超えないように制限（データリーク防止）
             if future_end > train_end:
                 future_end = train_end
             
-            # train_endを超える場合はこの月のラベルは作成しない
+            # future_startがtrain_endを超える場合、この月のラベルは作成不可
             if future_start >= train_end:
                 continue
             
-            # 将来期間のレビュー依頼
+            # 将来期間のレビュー依頼（train_end内）
             month_future_df = df[
                 (df[date_col] >= future_start) &
                 (df[date_col] < future_end) &
@@ -121,7 +130,7 @@ def prepare_trajectories_importants_style(
             
             step_labels.append(month_label)
             
-            # この月時点までの活動履歴
+            # この月時点までの活動履歴（特徴量計算期間内）
             month_history = reviewer_history[reviewer_history[date_col] < month_end]
             monthly_activities = []
             for _, row in month_history.iterrows():
@@ -335,7 +344,44 @@ def train_enhanced_irl(
         epochs=epochs
     )
     
-    # 評価
+    # 訓練データで最適閾値を決定
+    logger.info("訓練データで最適閾値を決定...")
+    train_results = []
+    train_labels = []
+    
+    for traj in train_trajectories:
+        try:
+            result = system.predict_continuation_probability(
+                developer=traj['developer_info'],
+                activity_history=traj['activity_history']
+            )
+            train_results.append(result['continuation_probability'])
+            
+            # 最後のstep_labelを訓練ラベルとして使用
+            if len(traj['step_labels']) > 0:
+                train_labels.append(traj['step_labels'][-1])
+            else:
+                train_labels.append(0)
+        except (AttributeError, RuntimeError) as e:
+            logger.warning(f"訓練軌跡スキップ: {e}")
+            continue
+    
+    train_probs = np.array(train_results)
+    train_labels = np.array(train_labels)
+    
+    # 訓練データでF1最大の閾値を決定
+    from sklearn.metrics import precision_recall_curve
+    if len(set(train_labels)) > 1:
+        precision, recall, thresholds = precision_recall_curve(train_labels, train_probs)
+        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+        optimal_idx = np.argmax(f1_scores)
+        optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
+        logger.info(f"最適閾値（訓練データ）: {optimal_threshold:.4f}")
+    else:
+        optimal_threshold = 0.5
+        logger.warning("訓練データのラベルが単一クラス → 閾値=0.5")
+    
+    # 評価データで性能測定（閾値は訓練データで決定済み）
     eval_results = []
     eval_labels = []
     
@@ -353,7 +399,6 @@ def train_enhanced_irl(
             else:
                 eval_labels.append(0)
         except (AttributeError, RuntimeError) as e:
-            # エラーが発生した軌跡はスキップ
             logger.warning(f"評価軌跡スキップ: {e}")
             continue
     
@@ -362,19 +407,13 @@ def train_enhanced_irl(
     eval_labels = np.array(eval_labels)
     
     if len(set(eval_labels)) > 1:
-        auc_roc = roc_auc_score(eval_labels, eval_probs)
-        
-        # 最適閾値を探索
         from sklearn.metrics import auc as calc_auc
-        from sklearn.metrics import precision_recall_curve
-        precision, recall, thresholds = precision_recall_curve(eval_labels, eval_probs)
+        
+        auc_roc = roc_auc_score(eval_labels, eval_probs)
+        precision, recall, _ = precision_recall_curve(eval_labels, eval_probs)
         auc_pr = calc_auc(recall, precision)
         
-        # F1最大の閾値
-        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
-        optimal_idx = np.argmax(f1_scores)
-        optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
-        
+        # 訓練データで決めた閾値を使用
         eval_preds = (eval_probs >= optimal_threshold).astype(int)
         precision_val = precision_score(eval_labels, eval_preds, zero_division=0)
         recall_val = recall_score(eval_labels, eval_preds, zero_division=0)
@@ -382,7 +421,6 @@ def train_enhanced_irl(
     else:
         auc_roc = 0.0
         auc_pr = 0.0
-        optimal_threshold = 0.5
         precision_val = 0.0
         recall_val = 0.0
         f1_val = 0.0
@@ -390,7 +428,7 @@ def train_enhanced_irl(
     metrics = {
         'auc_roc': float(auc_roc),
         'auc_pr': float(auc_pr),
-        'optimal_threshold': float(optimal_threshold),
+        'threshold': float(optimal_threshold),
         'precision': float(precision_val),
         'recall': float(recall_val),
         'f1_score': float(f1_val),
@@ -402,6 +440,7 @@ def train_enhanced_irl(
     logger.info(f"AUC-ROC: {auc_roc:.4f}")
     logger.info(f"AUC-PR: {auc_pr:.4f}")
     logger.info(f"F1: {f1_val:.4f}")
+    logger.info(f"閾値（訓練データで決定）: {optimal_threshold:.4f}")
     
     # 保存
     if output_dir:
@@ -422,14 +461,24 @@ def train_enhanced_irl(
 def evaluate_with_existing_model(
     model_path: Path,
     eval_trajectories: List[Dict],
-    output_dir: Path = None
+    output_dir: Path = None,
+    threshold: float = 0.5
 ) -> Dict[str, float]:
-    """既存モデルで評価のみ実施"""
+    """
+    既存モデルで評価のみ実施
+    
+    Args:
+        model_path: モデルファイルパス
+        eval_trajectories: 評価軌跡
+        output_dir: 出力ディレクトリ
+        threshold: 分類閾値（訓練データで決定されたもの）
+    """
 
     logger.info("=" * 80)
     logger.info("Enhanced IRL (Attention) 評価のみ")
     logger.info("=" * 80)
     logger.info(f"モデル: {model_path}")
+    logger.info(f"閾値: {threshold:.4f}")
 
     # モデル読み込み
     system = RetentionIRLSystem.load_model(str(model_path))
@@ -454,7 +503,6 @@ def evaluate_with_existing_model(
             else:
                 eval_labels.append(0)
         except (AttributeError, RuntimeError) as e:
-            # エラーが発生した軌跡はスキップ
             logger.warning(f"評価軌跡スキップ: {e}")
             continue
 
@@ -463,27 +511,21 @@ def evaluate_with_existing_model(
     eval_labels = np.array(eval_labels)
 
     if len(set(eval_labels)) > 1:
-        auc_roc = roc_auc_score(eval_labels, eval_probs)
-
-        # 最適閾値を探索
         from sklearn.metrics import auc as calc_auc
         from sklearn.metrics import precision_recall_curve
-        precision, recall, thresholds = precision_recall_curve(eval_labels, eval_probs)
+        
+        auc_roc = roc_auc_score(eval_labels, eval_probs)
+        precision, recall, _ = precision_recall_curve(eval_labels, eval_probs)
         auc_pr = calc_auc(recall, precision)
 
-        # F1最大の閾値
-        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
-        optimal_idx = np.argmax(f1_scores)
-        optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
-
-        eval_preds = (eval_probs >= optimal_threshold).astype(int)
+        # 引数で渡された閾値を使用（訓練データで決定済み）
+        eval_preds = (eval_probs >= threshold).astype(int)
         precision_val = precision_score(eval_labels, eval_preds, zero_division=0)
         recall_val = recall_score(eval_labels, eval_preds, zero_division=0)
         f1_val = f1_score(eval_labels, eval_preds, zero_division=0)
     else:
         auc_roc = 0.0
         auc_pr = 0.0
-        optimal_threshold = 0.5
         precision_val = 0.0
         recall_val = 0.0
         f1_val = 0.0
@@ -491,7 +533,7 @@ def evaluate_with_existing_model(
     metrics = {
         'auc_roc': float(auc_roc),
         'auc_pr': float(auc_pr),
-        'optimal_threshold': float(optimal_threshold),
+        'threshold': float(threshold),
         'precision': float(precision_val),
         'recall': float(recall_val),
         'f1_score': float(f1_val),
@@ -503,6 +545,7 @@ def evaluate_with_existing_model(
     logger.info(f"AUC-ROC: {auc_roc:.4f}")
     logger.info(f"AUC-PR: {auc_pr:.4f}")
     logger.info(f"F1: {f1_val:.4f}")
+    logger.info(f"閾値（訓練時決定）: {threshold:.4f}")
 
     # 保存
     if output_dir:

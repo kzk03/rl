@@ -139,28 +139,39 @@ def calculate_state_features(df: pd.DataFrame, reviewer: str, context_date: date
 def prepare_monthly_trajectories(df: pd.DataFrame, train_start: datetime, train_end: datetime,
                                   future_window_months: int = 6):
     """
-    月次集約軌跡を生成（importants方式）
+    月次集約軌跡を生成（データリークなし版）
+    
+    重要：訓練期間内で完結させるため、訓練期間を分割：
+    - 特徴量計算期間: train_start ~ (train_end - future_window_months)
+    - ラベル計算期間: (train_end - future_window_months) ~ train_end
     
     各月末を基準点として:
     - 特徴量: train_start ~ 月末までの累積活動
-    - ラベル: 月末 + future_window_months でレビュー受諾があったか
+    - ラベル: 月末から future_window_months 後までの受諾（train_end内）
     """
     trajectories = []
     
-    # 月末を列挙
+    # 特徴量計算期間の終了（ラベル期間の開始）
+    feature_end = train_end - pd.DateOffset(months=future_window_months)
+    
+    # 月末を列挙（特徴量計算期間内のみ）
     current = train_start
-    while current < train_end:
+    while current < feature_end:
         month_end = current + pd.DateOffset(months=1)
-        if month_end > train_end:
-            month_end = train_end
+        if month_end > feature_end:
+            month_end = feature_end
         
         # この月末までに活動した人
         history_df = df[(df['request_time'] >= train_start) & (df['request_time'] < month_end)]
         active_reviewers = history_df['reviewer_email'].unique()
         
-        # 将来窓
+        # 将来窓（訓練期間内に収まる）
         future_start = month_end
         future_end = month_end + pd.DateOffset(months=future_window_months)
+        # train_endを超えないように制限
+        if future_end > train_end:
+            future_end = train_end
+        
         future_df = df[(df['request_time'] >= future_start) & (df['request_time'] < future_end)]
         
         # 将来窓で受諾した人
@@ -182,16 +193,25 @@ def prepare_monthly_trajectories(df: pd.DataFrame, train_start: datetime, train_
 
 def prepare_eval_data(df: pd.DataFrame, eval_start: datetime, eval_months: int,
                       train_start: datetime, future_window_months: int = 6):
-    """評価データ準備（importants方式）"""
+    """
+    評価データ準備（データリークなし版）
+    
+    評価期間を分割：
+    - 特徴量計算期間: eval_start ~ (eval_start + eval_months - future_window_months)
+    - ラベル計算期間: (eval_start + eval_months - future_window_months) ~ (eval_start + eval_months)
+    """
     eval_end = eval_start + pd.DateOffset(months=eval_months)
     
-    # 評価期間に活動した人（履歴特徴量はtrain_start~eval_startで計算）
-    eval_df = df[(df['request_time'] >= eval_start) & (df['request_time'] < eval_end)]
+    # 特徴量計算期間の終了（ラベル期間の開始）
+    feature_end = eval_end - pd.DateOffset(months=future_window_months)
+    
+    # 評価期間の特徴量計算期間に活動した人
+    eval_df = df[(df['request_time'] >= eval_start) & (df['request_time'] < feature_end)]
     eval_reviewers = eval_df['reviewer_email'].unique()
     
-    # 将来窓でレビュー受諾
-    future_start = eval_end
-    future_end = eval_end + pd.DateOffset(months=future_window_months)
+    # 将来窓でレビュー受諾（eval_end内に収まる）
+    future_start = feature_end
+    future_end = eval_end
     future_df = df[(df['request_time'] >= future_start) & (df['request_time'] < future_end)]
     accepted = future_df[future_df['label'] == 1]['reviewer_email'].unique()
     accepted_set = set(accepted)
@@ -201,7 +221,7 @@ def prepare_eval_data(df: pd.DataFrame, eval_start: datetime, eval_months: int,
         label = 1 if reviewer in accepted_set else 0
         eval_samples.append({
             'reviewer': reviewer,
-            'cutoff_date': eval_start,
+            'cutoff_date': feature_end,  # 特徴量計算の終了時点
             'label': label
         })
     
