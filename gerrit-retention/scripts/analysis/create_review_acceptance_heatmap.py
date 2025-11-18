@@ -89,12 +89,12 @@ def create_heatmap(
     df = pd.DataFrame(data)
     pivot_table = df.pivot(index='eval_period', columns='train_period', values='value')
     
-    # 軸の順序を設定
-    pivot_table = pivot_table.reindex(periods, columns=periods)
-    
+    # 軸の順序を設定（y軸は逆順にして下から0-3mになるようにする）
+    pivot_table = pivot_table.reindex(periods[::-1], columns=periods)
+
     # ヒートマップを作成
     plt.figure(figsize=(10, 8))
-    
+
     # 色スケールを0-1.0に固定
     ax = sns.heatmap(
         pivot_table,
@@ -105,10 +105,6 @@ def create_heatmap(
         vmax=1.0,
         cbar_kws={'label': metric_name}
     )
-    
-    # y軸の順序を明示的に設定（下から上: 0-3m, 3-6m, 6-9m, 9-12m）
-    ax.set_yticks([0.5, 1.5, 2.5, 3.5])
-    ax.set_yticklabels(['0-3m', '3-6m', '6-9m', '9-12m'])
     
     if title is None:
         title = f'{metric_name} - レビュー承諾予測'
@@ -165,10 +161,10 @@ def create_combined_heatmap(
         
         df = pd.DataFrame(data)
         pivot_table = df.pivot(index='eval_period', columns='train_period', values='value')
-        
-        # 軸の順序を設定
-        pivot_table = pivot_table.reindex(periods, columns=periods)
-        
+
+        # 軸の順序を設定（y軸は逆順にして下から0-3mになるようにする）
+        pivot_table = pivot_table.reindex(periods[::-1], columns=periods)
+
         # ヒートマップを作成
         ax = axes[idx]
         sns.heatmap(
@@ -181,10 +177,6 @@ def create_combined_heatmap(
             ax=ax,
             cbar_kws={'label': metric_title}
         )
-        
-        # y軸の順序を明示的に設定
-        ax.set_yticks([0.5, 1.5, 2.5, 3.5])
-        ax.set_yticklabels(['0-3m', '3-6m', '6-9m', '9-12m'])
         
         ax.set_title(metric_title, fontsize=12, pad=10)
         ax.set_xlabel('訓練期間', fontsize=10)
@@ -203,8 +195,8 @@ def create_combined_heatmap(
 
 
 def main():
-    base_dir = Path("outputs/review_acceptance_cross_eval_nova")
-    
+    base_dir = Path("importants/review_acceptance_cross_eval_nova")
+
     if not base_dir.exists():
         logger.error(f"ベースディレクトリが存在しません: {base_dir}")
         return
@@ -219,29 +211,33 @@ def main():
     
     logger.info(f"読み込んだメトリクス数: {len(metrics_dict)}")
     
+    # heatmaps ディレクトリを作成
+    heatmaps_dir = base_dir / "heatmaps"
+    heatmaps_dir.mkdir(exist_ok=True)
+
     # 個別のヒートマップを作成
     logger.info("個別ヒートマップを作成中...")
-    
+
     metrics_to_plot = {
-        'auc_roc': 'AUC-ROC',
-        'auc_pr': 'AUC-PR',
+        'auc_roc': 'AUC_ROC',
+        'auc_pr': 'AUC_PR',
         'precision': 'Precision',
         'recall': 'Recall',
-        'f1_score': 'F1 Score'
+        'f1_score': 'F1_Score'
     }
-    
+
     for metric_name, metric_title in metrics_to_plot.items():
-        output_path = base_dir / f"heatmap_{metric_name}.png"
+        output_path = heatmaps_dir / f"heatmap_{metric_title}.png"
         create_heatmap(
             metrics_dict,
             metric_name,
             output_path,
             title=f'{metric_title} - レビュー承諾予測'
         )
-    
+
     # 統合ヒートマップを作成
     logger.info("統合ヒートマップを作成中...")
-    combined_output_path = base_dir / "heatmap_combined.png"
+    combined_output_path = heatmaps_dir / "heatmap_combined.png"
     create_combined_heatmap(metrics_dict, combined_output_path)
     
     # メトリクスCSVを作成

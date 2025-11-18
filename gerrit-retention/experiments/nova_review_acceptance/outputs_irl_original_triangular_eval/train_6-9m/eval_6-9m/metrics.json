@@ -1,0 +1,21 @@
+{
+  "auc_roc": 0.7639257294429708,
+  "auc_pr": 0.691442703577982,
+  "optimal_threshold": 0.4808189570903778,
+  "threshold_source": "train_data",
+  "precision": 0.7272727272727273,
+  "recall": 0.6153846153846154,
+  "f1_score": 0.6666666666666666,
+  "positive_count": 13,
+  "negative_count": 29,
+  "total_count": 42,
+  "eval_optimal_threshold": 0.4819478690624237,
+  "eval_optimal_f1": 0.6666666666170139,
+  "prediction_stats": {
+    "min": 0.4625632166862488,
+    "max": 0.4904305636882782,
+    "mean": 0.4779366460584459,
+    "std": 0.005808682302617443,
+    "median": 0.478223517537117
+  }
+}
