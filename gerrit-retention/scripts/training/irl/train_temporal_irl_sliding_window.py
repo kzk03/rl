@@ -65,33 +65,41 @@ def extract_trajectories_with_window(
     df: pd.DataFrame,
     snapshot_date: datetime,
     history_months: int,
-    target_months: int,
+    target_start_months: int,
+    target_end_months: int,
     reviewer_col: str = 'reviewer_email',
     date_col: str = 'request_time'
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    指定された学習期間と予測期間で軌跡を抽出
+    指定された学習期間と予測期間で軌跡を抽出（論文準拠：予測期間は範囲指定）
 
     Args:
         df: レビューログ
         snapshot_date: スナップショット日
-        history_months: 学習期間（ヶ月）
-        target_months: 予測期間（ヶ月）
+        history_months: 学習期間（ヶ月、0~history_months前）
+        target_start_months: 予測期間開始（ヶ月後）
+        target_end_months: 予測期間終了（ヶ月後）
         reviewer_col: レビュアーカラム名
         date_col: 日付カラム名
 
     Returns:
         train_trajectories: 訓練用軌跡リスト
         test_trajectories: テスト用軌跡リスト（予測期間のラベル付き）
+
+    例：
+        - history_months=6, target_start_months=3, target_end_months=6
+        → 学習: スナップショットから0~6ヶ月前
+        → 予測: スナップショットから3~6ヶ月後（論文の3-6m）
     """
     history_start = snapshot_date - pd.DateOffset(months=history_months)
-    target_end = snapshot_date + pd.DateOffset(months=target_months)
+    target_start = snapshot_date + pd.DateOffset(months=target_start_months)
+    target_end = snapshot_date + pd.DateOffset(months=target_end_months)
 
     # 学習期間のデータ
     history_df = df[(df[date_col] >= history_start) & (df[date_col] < snapshot_date)]
 
-    # 予測期間のデータ
-    target_df = df[(df[date_col] >= snapshot_date) & (df[date_col] < target_end)]
+    # 予測期間のデータ（範囲指定）
+    target_df = df[(df[date_col] >= target_start) & (df[date_col] < target_end)]
 
     # レビュアーごとにグループ化
     reviewers_in_history = set(history_df[reviewer_col].unique())
@@ -222,20 +230,21 @@ def sliding_window_evaluation(
     df: pd.DataFrame,
     snapshot_date: datetime,
     history_months_list: List[int],
-    target_months_list: List[int],
+    target_windows_list: List[Tuple[int, int]],
     output_dir: Path,
     sequence: bool = True,
     seq_len: int = 10,
     epochs: int = 30
 ) -> pd.DataFrame:
     """
-    スライディングウィンドウ評価
+    スライディングウィンドウ評価（論文準拠：予測期間は範囲指定）
 
     Args:
         df: レビューログ
         snapshot_date: スナップショット日
-        history_months_list: 学習期間候補（ヶ月）
-        target_months_list: 予測期間候補（ヶ月）
+        history_months_list: 学習期間候補（ヶ月、0~N前）
+        target_windows_list: 予測期間候補（(start, end)のタプルリスト）
+            例: [(0, 3), (3, 6), (6, 9), (9, 12)] → 論文の0-3m, 3-6m, 6-9m, 9-12m
         output_dir: 出力ディレクトリ
         sequence: 時系列モードを使用するか
         seq_len: シーケンス長
@@ -249,19 +258,19 @@ def sliding_window_evaluation(
     reviewer_col = 'reviewer_email' if 'reviewer_email' in df.columns else 'email'
     date_col = 'request_time' if 'request_time' in df.columns else 'created'
 
-    total_combinations = len(history_months_list) * len(target_months_list)
+    total_combinations = len(history_months_list) * len(target_windows_list)
     current_idx = 0
 
     for history_months in history_months_list:
-        for target_months in target_months_list:
+        for target_start, target_end in target_windows_list:
             current_idx += 1
             logger.info(f"\n{'='*80}")
-            logger.info(f"組み合わせ {current_idx}/{total_combinations}: 学習={history_months}ヶ月, 予測={target_months}ヶ月")
+            logger.info(f"組み合わせ {current_idx}/{total_combinations}: 学習={history_months}ヶ月, 予測={target_start}-{target_end}ヶ月")
             logger.info(f"{'='*80}")
 
-            # 軌跡抽出
+            # 軌跡抽出（範囲指定）
             train_traj, test_traj = extract_trajectories_with_window(
-                df, snapshot_date, history_months, target_months,
+                df, snapshot_date, history_months, target_start, target_end,
                 reviewer_col, date_col
             )
 
@@ -283,7 +292,7 @@ def sliding_window_evaluation(
             irl_system = train_irl_model(train_traj, config, epochs=epochs)
 
             # モデル保存
-            model_name = f"irl_h{history_months}m_t{target_months}m_{'seq' if sequence else 'nosq'}.pth"
+            model_name = f"irl_h{history_months}m_t{target_start}-{target_end}m_{'seq' if sequence else 'nosq'}.pth"
             model_path = output_dir / "models" / model_name
             model_path.parent.mkdir(parents=True, exist_ok=True)
             irl_system.save_model(str(model_path))
@@ -294,7 +303,9 @@ def sliding_window_evaluation(
             # 結果を記録
             results.append({
                 'history_months': history_months,
-                'target_months': target_months,
+                'target_window': f"{target_start}-{target_end}m",
+                'target_start': target_start,
+                'target_end': target_end,
                 'sequence_mode': sequence,
                 'seq_len': seq_len if sequence else 0,
                 'train_samples': len(train_traj),
@@ -341,11 +352,11 @@ def create_evaluation_matrix(results_df: pd.DataFrame, output_dir: Path, sequenc
         pivot = results_df.pivot_table(
             values=metric,
             index='history_months',
-            columns='target_months',
+            columns='target_window',
             aggfunc='mean'
         )
 
-        report_lines.append("\n行: 学習期間（ヶ月）, 列: 予測期間（ヶ月）")
+        report_lines.append("\n行: 学習期間（ヶ月）, 列: 予測期間（範囲）")
         report_lines.append(pivot.to_string())
 
         # 最良の組み合わせ
@@ -353,7 +364,7 @@ def create_evaluation_matrix(results_df: pd.DataFrame, output_dir: Path, sequenc
         best_row = results_df.loc[best_idx]
         report_lines.append(f"\n最良の組み合わせ:")
         report_lines.append(f"  学習期間: {best_row['history_months']}ヶ月")
-        report_lines.append(f"  予測期間: {best_row['target_months']}ヶ月")
+        report_lines.append(f"  予測期間: {best_row['target_window']}")
         report_lines.append(f"  {metric}: {best_row[metric]:.4f}")
 
     report_lines.append(f"\n{'='*80}")
@@ -442,12 +453,32 @@ def main():
     # レビューログ読み込み
     df = load_review_logs(args.reviews)
 
+    # 予測期間を論文準拠の範囲指定に変換
+    # 論文: 0-3m, 3-6m, 6-9m, 9-12m（範囲指定）
+    # args.target_months = [3, 6, 9, 12] → [(0,3), (3,6), (6,9), (9,12)]
+    target_windows = []
+    for end_month in sorted(args.target_months):
+        if end_month == 3:
+            target_windows.append((0, 3))  # 0-3m
+        elif end_month == 6:
+            target_windows.append((3, 6))  # 3-6m
+        elif end_month == 9:
+            target_windows.append((6, 9))  # 6-9m
+        elif end_month == 12:
+            target_windows.append((9, 12))  # 9-12m
+        else:
+            # その他の場合は (end_month-3, end_month) の範囲を使用
+            start_month = max(0, end_month - 3)
+            target_windows.append((start_month, end_month))
+
+    logger.info(f"予測期間（論文準拠の範囲指定）: {target_windows}")
+
     # スライディングウィンドウ評価
     results_df = sliding_window_evaluation(
         df,
         snapshot_date,
         args.history_months,
-        args.target_months,
+        target_windows,
         args.output,
         sequence=args.sequence,
         seq_len=args.seq_len,
