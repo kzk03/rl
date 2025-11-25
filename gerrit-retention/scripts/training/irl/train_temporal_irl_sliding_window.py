@@ -272,7 +272,7 @@ def sliding_window_evaluation(
             # IRL設定
             config = {
                 'state_dim': 10,
-                'action_dim': 5,
+                'action_dim': 4,  # 4次元: intensity, collaboration, response_speed, review_size
                 'hidden_dim': 128,
                 'learning_rate': 0.001,
                 'sequence': sequence,
